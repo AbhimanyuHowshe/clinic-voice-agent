@@ -31,7 +31,7 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 - [x] Initialize the Git repository.
 - [x] Create the project directory structure.
 - [x] Create `.gitignore`, `.env.example`, and `README.md`.
-- [ ] Set up LiveKit Cloud.
+- [x] Set up LiveKit Cloud. (A worker registered on 2026-10-21, region India South.)
 - [x] Set up Sarvam AI API access. (Live smoke test passed 2026-10-21.)
 - [x] Set up Supabase. (Done 2026-10-21; the project is in Seoul, which is acceptable for the India and Australia demo. See Scope.)
 - [x] Verify current LiveKit Agents SDK versions. (1.8.8)
@@ -47,10 +47,10 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 
 - [x] Set up the Python environment. (uv, `agent/pyproject.toml`)
 - [x] Install LiveKit Agents.
-- [ ] Configure Sarvam STT.
-- [ ] Configure Sarvam TTS.
-- [ ] Configure a compatible LLM. (Use `sarvam-105b-conversations`.)
-- [ ] Create a basic receptionist prompt.
+- [x] Configure Sarvam STT.
+- [x] Configure Sarvam TTS.
+- [x] Configure a compatible LLM. (`sarvam-105b-conversations`.)
+- [x] Create a basic receptionist prompt. (Text-mode tests pass.)
 - [ ] Enable Hindi, English, and Hinglish tests.
 - [ ] Test interruptions, silence, and timeouts.
 - [ ] Run a browser-based voice session.

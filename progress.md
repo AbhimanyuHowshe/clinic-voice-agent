@@ -4,8 +4,8 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Current Status
 
-- **Current phase:** Phase 0 — Project Setup and Compatibility
-- **Next task:** Build the minimal Phase 1 voice agent (Sarvam STT → `sarvam-105b-conversations` → Sarvam TTS) and run it in a LiveKit room. The live Sarvam smoke test passed on 2026-10-21.
+- **Current phase:** Phase 1 — Minimal Voice Agent
+- **Next task:** The user holds a spoken conversation with the agent (`console` mode or the Agents Playground) to test Hindi, English and Hinglish speech, interruptions and silence. Then deploy with `lk agent deploy` and scaffold the Next.js voice page.
 
 ## Completed
 
@@ -56,6 +56,12 @@ Record only verified results here. Do not mark an item done until it has actuall
   - With no clinic data, the LLM **made up opening hours** ("subah 9 baje"). FAQ answers must be grounded in `clinic_faqs` with an explicit "I don't know" rule (Phase 2).
   - `python-dotenv` warns it cannot parse line 12 of `agent/.env`. The user must fix that line (Claude does not read `.env`).
 - Security: real LiveKit credentials had been pasted into the tracked `dashboard/.env.example` (never committed; `git log -S` finds nothing). Restored the placeholders. The values were exposed in a Claude session, so the user should rotate that LiveKit API key.
+
+### 2026-10-21: Phase 1 minimal voice agent
+- Added `agent/receptionist.py`: `AgentServer` with a Silero VAD prewarm, and an `AgentSession` using Sarvam STT (`saaras:v4`, language `unknown`), `sarvam.LLM` (`sarvam-105b-conversations`) and Sarvam TTS (`bulbul:v3`, `priya`, `hi-IN`). It has a receptionist prompt (reply in the patient's language, never invent clinic facts, no diagnosis or prescribing, 112 for emergencies) and `record=False`. Written against the installed 1.8.8 source.
+- `agent/tests/test_receptionist.py`: **6 passed, twice in a row** with `RUN_LIVE_TESTS=1`. These are text-mode `AgentSession.run` tests against the real Sarvam LLM, graded by `judge()`. They cover an English reply, a Hindi reply, no made-up timings or fees, emergency → 112, and no prescribing. The first run failed "no-prescribing": the agent refused but didn't suggest seeing a doctor. Fixed in the prompt. Live tests are skipped by default; the offline suite gives 10 passed, 6 skipped.
+- `uv run python receptionist.py dev` **registered a worker with LiveKit Cloud** (region "India South", protocol 18). Not yet tested: a real room session with audio. The `dev` subcommand is deprecated in favour of `lk agent dev` (lk CLI 2.18.8 is installed).
+- Not done yet: a spoken conversation, interruption, silence and timeout testing, a turn-detector model (VAD plus STT endpointing for now), and deployment.
 
 ## In Progress
 
