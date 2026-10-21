@@ -21,7 +21,7 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 
 - Use fictional clinics, doctors, FAQs and patients only. No real patient data.
 - Seed two demo clinics: one in India (`Asia/Kolkata`, Hindi/English/Hinglish) and one in Australia (`Australia/Sydney`, English). This shows per-clinic time zones and languages.
-- **Voice for Australia:** Sarvam focuses on Indian languages and accents. Its English voices are expected to sound Indian-accented. Test how it sounds in Phase 1. If it doesn't suit Australian demos, add an alternative English TTS for that clinic through a LiveKit plugin. Verify the options before choosing.
+- **Voice for Australia:** Sarvam focuses on Indian languages and accents. Its English voices are expected to sound Indian-accented. Test how it sounds in Phase 1. Tested 2026-10-21: the live API offers only Indian voices (`amelia`/`sophia` are rejected), so add an alternative English TTS for that clinic through a LiveKit plugin. Verify the options before choosing.
 - **Region:** the Supabase project is in Seoul (`ap-northeast-2`), between India and Australia. Keep it for the demo. Place the LiveKit agent region close to the database (check which regions LiveKit Cloud offers).
 - **Vercel Hobby:** showing the demo to paying prospects may count as commercial use under Hobby's terms. Check the terms before sharing it with clients, or use a host that allows commercial use.
 - A real client deployment would need its own project in the client's region, plus a review of the client's privacy obligations. For India that means the DPDP Act; for Australia, the Privacy Act and the Australian Privacy Principles for health information.
@@ -32,12 +32,12 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 - [x] Create the project directory structure.
 - [x] Create `.gitignore`, `.env.example`, and `README.md`.
 - [ ] Set up LiveKit Cloud.
-- [ ] Set up Sarvam AI API access.
+- [x] Set up Sarvam AI API access. (Live smoke test passed 2026-10-21.)
 - [x] Set up Supabase. (Done 2026-10-21; the project is in Seoul, which is acceptable for the India and Australia demo. See Scope.)
 - [x] Verify current LiveKit Agents SDK versions. (1.8.8)
-- [ ] Verify Sarvam STT and TTS compatibility. (Offline constructor checks pass; live API test pending.)
+- [x] Verify Sarvam STT and TTS compatibility. (Live round trip passed 2026-10-21.)
 - [x] Verify LangChain and LangGraph package compatibility. (An offline test streams through `LLMAdapter`.)
-- [ ] Verify supported LLM streaming integration. (The adapter streams offline; live Sarvam LLM streaming is pending.)
+- [x] Verify supported LLM streaming integration. (`sarvam-105b-conversations` streams live with tool calls; `sarvam-105b` is too slow for voice.)
 - [ ] Confirm free-tier quotas and deployment restrictions. (LiveKit Build plan and Vercel Hobby checked 2026-10-21; see Hosting Approach. Supabase still to check.)
 - [x] Record exact tested dependency versions. (See progress.md; update after the live tests.)
 
@@ -49,7 +49,7 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 - [x] Install LiveKit Agents.
 - [ ] Configure Sarvam STT.
 - [ ] Configure Sarvam TTS.
-- [ ] Configure a compatible LLM.
+- [ ] Configure a compatible LLM. (Use `sarvam-105b-conversations`.)
 - [ ] Create a basic receptionist prompt.
 - [ ] Enable Hindi, English, and Hinglish tests.
 - [ ] Test interruptions, silence, and timeouts.

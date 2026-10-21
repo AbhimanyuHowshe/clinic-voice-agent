@@ -59,7 +59,7 @@ def test_sarvam_stt_accepts_demo_languages(language):
 
 @pytest.mark.parametrize(
     "language,speaker",
-    [("hi-IN", "priya"), ("en-IN", "priya"), ("en-IN", "amelia")],
+    [("hi-IN", "priya"), ("en-IN", "priya"), ("en-IN", "shubh")],
 )
 def test_sarvam_tts_accepts_demo_voices(language, speaker):
     sarvam.TTS(
@@ -71,13 +71,13 @@ def test_sarvam_tts_accepts_demo_voices(language, speaker):
 
 
 def test_sarvam_llm_model_is_supported():
-    sarvam.LLM(model="sarvam-105b", api_key=DUMMY_KEY)
+    sarvam.LLM(model="sarvam-105b-conversations", api_key=DUMMY_KEY)
 
 
 def test_langchain_sarvam_supports_tools_and_streaming():
     from langchain_sarvam import ChatSarvam
 
-    chat = ChatSarvam(model="sarvam-105b", api_key=DUMMY_KEY)
+    chat = ChatSarvam(model="sarvam-105b-conversations", api_key=DUMMY_KEY)
     assert hasattr(chat, "bind_tools")
     assert hasattr(chat, "with_structured_output")
     assert type(chat)._astream is not ChatSarvam.__mro__[1]._astream

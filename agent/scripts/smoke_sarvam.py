@@ -26,7 +26,7 @@ AGENT_DIR = Path(__file__).resolve().parent.parent
 SAMPLES = [
     ("hinglish_priya", "hi-IN", "priya", "Namaste! Kya aap kal subah appointment book karna chahenge?", True),
     ("en_priya", "en-IN", "priya", "Hello, how can I help you today?", True),
-    ("en_amelia", "en-IN", "amelia", "Hello, how can I help you today?", False),
+    ("en_shubh", "en-IN", "shubh", "Hello, how can I help you today?", False),
 ]
 
 
@@ -72,7 +72,7 @@ async def run_llm() -> bool:
     from langchain_sarvam import ChatSarvam
 
     ok = True
-    chat = ChatSarvam(model="sarvam-105b", max_tokens=150, reasoning_effort="low")
+    chat = ChatSarvam(model="sarvam-105b-conversations", max_tokens=150)
     prompt = [
         ("system", "You are a polite clinic receptionist. Reply in one short sentence, in the patient's language."),
         ("human", "Namaste, clinic kitne baje khulta hai?"),
@@ -118,6 +118,7 @@ async def run_llm() -> bool:
 
 
 async def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows consoles default to cp1252, which cannot print Devanagari
     load_dotenv(AGENT_DIR / ".env")
     if not os.environ.get("SARVAM_API_KEY") or "your-" in os.environ["SARVAM_API_KEY"]:
         print("SARVAM_API_KEY missing or still a placeholder in agent/.env")

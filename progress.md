@@ -5,7 +5,7 @@ Record only verified results here. Do not mark an item done until it has actuall
 ## Current Status
 
 - **Current phase:** Phase 0 — Project Setup and Compatibility
-- **Next task:** Run a live Sarvam smoke test (STT, TTS, LLM streaming) with the user's key, then build the minimal Phase 1 voice agent. The offline compatibility check passed.
+- **Next task:** Build the minimal Phase 1 voice agent (Sarvam STT → `sarvam-105b-conversations` → Sarvam TTS) and run it in a LiveKit room. The live Sarvam smoke test passed on 2026-10-21.
 
 ## Completed
 
@@ -44,6 +44,19 @@ Record only verified results here. Do not mark an item done until it has actuall
 - `agent/tests/test_compat.py`: **10 passed** (`uv run pytest tests`). These are offline tests with no network or keys. They show that a LangGraph graph streams tokens through `LLMAdapter`, that the adapter rejects unsupported stream modes, and that the Sarvam STT, TTS, LLM and `ChatSarvam` constructors accept the planned models, languages and voices.
 - **Not yet verified:** live calls to Sarvam (STT, TTS, LLM streaming and tool calling) with a real key, and a real LiveKit room session.
 
+### 2026-10-21: Live Sarvam smoke test
+- `uv run python scripts/smoke_sarvam.py`: **PASS** (after the fixes below). Offline tests: **10 passed**.
+  - TTS `bulbul:v3`: `priya` (hi-IN, en-IN) and `shubh` (en-IN) synthesized in 0.5–1.2 s.
+  - STT `saaras:v4`, language `unknown`: English round trip exact (0.20 s, detected `en-IN`). The romanized Hinglish sentence came back **in Devanagari** (detected `hi-IN`, 0.30 s). Try `mode="codemix"` or `translit` if the graph needs Latin script.
+  - LLM `sarvam-105b-conversations` via `ChatSarvam`: streamed 5 chunks, first token 0.32 s. Tool call `check_availability(doctor="Dr. Sharma", date="2026-10-22")` correct, so it resolved "tomorrow".
+- Findings and fixes:
+  - **`sarvam-105b` is a reasoning model and is unsuitable for voice.** With `max_tokens=150` it returned empty content (`finish_reason=length`); `reasoning_effort="low"` still returned empty at 1,000 tokens. Without that setting it took about 8.2 s to the first token (about 600 output tokens). `sarvam-105b-conversations` answered in 0.14–0.32 s. Switched the smoke test and offline tests to it.
+  - **The `amelia` voice is rejected by the live API** (400, "Speaker 'amelia' is not recognized" for `bulbul:v3`), even though the plugin lists it. The API's valid speakers are Indian names only, so **Sarvam has no non-Indian English voice. The Australian demo clinic needs a different TTS.** Replaced the sample with `shubh`.
+  - The Hindi STT "failure" in the first run was a Windows console `UnicodeEncodeError` (cp1252 cannot print Devanagari), not an API error. The script now sets UTF-8 on stdout.
+  - With no clinic data, the LLM **made up opening hours** ("subah 9 baje"). FAQ answers must be grounded in `clinic_faqs` with an explicit "I don't know" rule (Phase 2).
+  - `python-dotenv` warns it cannot parse line 12 of `agent/.env`. The user must fix that line (Claude does not read `.env`).
+- Security: real LiveKit credentials had been pasted into the tracked `dashboard/.env.example` (never committed; `git log -S` finds nothing). Restored the placeholders. The values were exposed in a Claude session, so the user should rotate that LiveKit API key.
+
 ## In Progress
 
 _None._
@@ -70,7 +83,7 @@ Installed and checked offline on 2026-10-21 with Python 3.13.13 on Windows 11. L
 | livekit-api | 1.2.2 |
 | langgraph | 1.2.16 |
 | langchain-core | 1.6.12 |
-| langchain-sarvam | 0.1.2 |
+| langchain-sarvam | 0.1.2 (live-tested 2026-10-21) |
 | sarvamai | 0.1.37 |
 | openai (transitive) | 3.35.1 |
 | onnxruntime (transitive) | 1.31.0 |
