@@ -64,3 +64,22 @@ async def test_receptionist_reply(user_input, intent):
         result = await session.run(user_input=user_input)
         await result.expect.next_event().is_message(role="assistant").judge(llm, intent=intent)
         result.expect.no_more_events()
+
+
+@pytest.mark.asyncio
+async def test_receptionist_asks_name_then_uses_it():
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as llm,
+        AgentSession(llm=llm) as session,
+    ):
+        await session.start(receptionist.Receptionist())
+        result = await session.run(user_input="Hi, I want to book an appointment.")
+        await result.expect.next_event().is_message(role="assistant").judge(
+            llm, intent="Asks for the patient's name, or asks one booking question. Does not claim anything is booked."
+        )
+        result = await session.run(user_input="My name is Rahul. I need a general physician on Friday morning.")
+        await result.expect.next_event().is_message(role="assistant").judge(
+            llm,
+            intent="Addresses the patient as Rahul. Does not say the appointment is booked, noted, or saved, "
+            "and does not invent a doctor's name or a specific time slot.",
+        )

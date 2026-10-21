@@ -50,10 +50,10 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 - [x] Configure Sarvam STT.
 - [x] Configure Sarvam TTS.
 - [x] Configure a compatible LLM. (`sarvam-105b-conversations`.)
-- [x] Create a basic receptionist prompt. (Text-mode tests pass.)
+- [ ] Create a basic receptionist prompt. (Name and appointment questions added; one live test still fails: English reply language and acknowledgement.)
 - [ ] Enable Hindi, English, and Hinglish tests.
 - [ ] Test interruptions, silence, and timeouts.
-- [ ] Run a browser-based voice session.
+- [x] Run a browser-based voice session. (Agents Playground, 2026-10-21; feedback logged in progress.md.)
 - [ ] Deploy the agent to LiveKit Cloud (`lk agent deploy`) as soon as a minimal agent works.
 - [ ] Scaffold the Next.js app with a public patient voice page and a server-side LiveKit token route.
 - [ ] Deploy the Next.js app to Vercel from GitHub (auto-deploy on push to `main`).

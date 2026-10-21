@@ -5,7 +5,10 @@ Record only verified results here. Do not mark an item done until it has actuall
 ## Current Status
 
 - **Current phase:** Phase 1 — Minimal Voice Agent
-- **Next task:** The user holds a spoken conversation with the agent (`console` mode or the Agents Playground) to test Hindi, English and Hinglish speech, interruptions and silence. Then deploy with `lk agent deploy` and scaffold the Next.js voice page.
+- **Next task (resume 2026-10-22):**
+  1. Fix the one failing live test, `test_receptionist_reply[en]` (see the 2026-10-21 voice test entry below), then rerun the live suite twice.
+  2. The user runs `lk cloud auth` once (it opens a browser), then retests by voice with `lk agent dev` and the Agents Playground: check the name prompt, whether the agent still cuts the patient off, interruptions and silence.
+  3. Deploy with `lk agent deploy`, then scaffold the Next.js voice page.
 
 ## Completed
 
@@ -62,6 +65,17 @@ Record only verified results here. Do not mark an item done until it has actuall
 - `agent/tests/test_receptionist.py`: **6 passed, twice in a row** with `RUN_LIVE_TESTS=1`. These are text-mode `AgentSession.run` tests against the real Sarvam LLM, graded by `judge()`. They cover an English reply, a Hindi reply, no made-up timings or fees, emergency → 112, and no prescribing. The first run failed "no-prescribing": the agent refused but didn't suggest seeing a doctor. Fixed in the prompt. Live tests are skipped by default; the offline suite gives 10 passed, 6 skipped.
 - `uv run python receptionist.py dev` **registered a worker with LiveKit Cloud** (region "India South", protocol 18). Not yet tested: a real room session with audio. The `dev` subcommand is deprecated in favour of `lk agent dev` (lk CLI 2.18.8 is installed).
 - Not done yet: a spoken conversation, interruption, silence and timeout testing, a turn-detector model (VAD plus STT endpointing for now), and deployment.
+
+### 2026-10-21: First spoken test (Agents Playground)
+- The user spoke to the agent through the Agents Playground with the worker running via `receptionist.py dev`. The job was received and the session ran (room `console-6b7a3b3c`).
+- `lk agent dev` failed with `api-key is required`. The `lk` CLI does not read `agent/.env` and has no configured project. The user needs to run `lk cloud auth`.
+- User feedback: **the agent did not ask for their name.** The Phase 1 prompt had no such rule.
+- Log findings:
+  - "transcript arrives after turn has been committed": Sarvam's transcript arrived after the 0.5 s endpoint, so the agent may reply before hearing the whole sentence. Set `turn_handling={"endpointing": {"min_delay": 0.8}}`. **Not yet re-verified by voice.**
+  - "no warmed process available": in dev mode the first call waits about 2 s while a process starts. "VAD inference is slower than realtime" (0.5 s) appeared once at session start on this laptop.
+- Prompt changes: acknowledge the request, then ask the patient's name and use it. For appointments, ask one question at a time (doctor or service, then day and time) and repeat the details back. Removed "offer to note the request", because nothing is saved yet, so it was a false promise. The agent must not say anything is booked, noted or saved.
+- Added `test_receptionist_asks_name_then_uses_it` (two turns).
+- **Live tests: 6 passed, 1 failed (two runs).** The failure is `test_receptionist_reply[en]` ("I'd like to see a doctor next week"). The reply asks for name and doctor, but the judge says it doesn't acknowledge the request, and in one run it answered in Hindi instead of English. Possible causes: the Hinglish greeting pulls later replies toward Hindi, or the judge's wording is too strict. Investigate before changing the test. Offline suite: 10 passed, 7 skipped.
 
 ## In Progress
 
