@@ -5,7 +5,7 @@ Record only verified results here. Do not mark an item done until it has actuall
 ## Current Status
 
 - **Current phase:** Phase 0 — Project Setup and Compatibility
-- **Next task:** Verify current LiveKit Agents, Sarvam (STT/TTS/LLM), LangChain, and LangGraph compatibility and record versions. Account setup (LiveKit Cloud, Sarvam, Supabase) is done by the user.
+- **Next task:** Run a live Sarvam smoke test (STT, TTS, LLM streaming) with the user's key, then build the minimal Phase 1 voice agent. The offline compatibility check passed.
 
 ## Completed
 
@@ -23,7 +23,26 @@ Record only verified results here. Do not mark an item done until it has actuall
 - Verified with `git check-ignore` that `agent/.env` and `dashboard/.env.local` are ignored and `agent/.env.example` is tracked.
 
 - Decided on online hosting from Phase 1: the agent on LiveKit Cloud and one Next.js app (patient voice page and staff dashboard) on Vercel. Added a Hosting Approach section and deployment tasks to `plan.md`.
-- Checked from vendor docs: the LiveKit Cloud Build (free) plan includes agent deployment, 1,000 agent minutes and 5,000 WebRTC minutes per month, 5 concurrent agent sessions, a hard usage cap, and 10–20 s cold starts. Vercel Hobby is non-commercial only. The `livekit-plugins-sarvam` plugin provides Sarvam STT (Saarika/Saaras), TTS (Bulbul) and LLM (sarvam-30b/105b, with tool calling) and reads `SARVAM_API_KEY`. None of this has been installed or tested yet.
+- Checked from vendor docs: the LiveKit Cloud Build (free) plan includes agent deployment, 1,000 agent minutes and 5,000 WebRTC minutes per month, 5 concurrent agent sessions, a hard usage cap, and 10–20 s cold starts. Vercel Hobby is non-commercial only. Sarvam plugin details were later corrected from the installed code; see the compatibility check below.
+
+- User reported (not yet verified by a connection test): Supabase project `clinic-voice-agent` created on the Free plan in the Mumbai region with Data API on, public schema, automatic RLS on, and "Automatically expose new tables" off. Keys entered in `agent/.env` and `dashboard/.env.local`, and a new LiveKit API key created because the old secret could not be revealed.
+- Created `agent/.env` and `dashboard/.env.local` from the examples (`git check-ignore` confirms both are ignored). Restored placeholders in `agent/.env.example` after real LiveKit values had been typed into it; they were never committed.
+- Ran `npx supabase init` (CLI 2.121.0): this created `supabase/config.toml` (local `enable_signup` set to `false`) and `supabase/.gitignore`. Linked to project ref `sjjvrgiijdoqlezvplcm`. `supabase projects list` shows it as ACTIVE_HEALTHY with Postgres 17.
+- Because "Automatically expose new tables" is off, migrations must include explicit `GRANT`s for the `anon`, `authenticated` and `service_role` roles.
+
+- Scope changed: the project is a demo for prospective clients in India and Australia. It uses fictional data only. `plan.md` has a new Scope section.
+
+### 2026-10-21: Phase 0 compatibility check (offline)
+- Python 3.13.13 with uv 0.11.8. Created `agent/pyproject.toml` (exact pins) and `agent/uv.lock`, and installed into `agent/.venv`, which git ignores. `requires-python` is `>=3.11,<3.14` because `livekit-plugins-turn-detector` 1.8.8 needs onnxruntime ≥1.30, which has no build for Python 3.10.
+- Checked the publishers: `livekit-plugins-sarvam` and `livekit-plugins-langchain` come from LiveKit, `langchain-sarvam` from Sarvam AI, and `httpx2` (a sarvam plugin dependency) from the pydantic/httpx project.
+- Read from the installed sources:
+  - **Sarvam STT:** models `saaras:v3` and `saaras:v4` (the default; `saarika:v2.5` and `saaras:v2.5` are sunset). Modes are transcribe, translate, verbatim, translit and **codemix**, which may suit Hinglish. Language codes are Indian `*-IN` codes plus `unknown` for auto-detect. **There is no `en-AU`.**
+  - **Sarvam TTS:** models `bulbul:v2`, `bulbul:v3` (the default), `bulbul:v3-beta` and `bulbul:v4-flash`. Target languages are Indian `*-IN` codes only. `bulbul:v3` includes voices labelled "International" (`amelia`, `sophia`); whether they suit Australian clients is untested.
+  - **Sarvam LLM** (`sarvam.LLM`, built on OpenAI-compatible LiveKit code): models `sarvam-105b` (the default), `sarvam-105b-conversations`, `gemma4` and `glm5.2`. `sarvam-30b` is **not** in this version.
+  - **LangGraph adapter:** `livekit.plugins.langchain.LLMAdapter(graph, config=, context=, subgraphs=, stream_mode="messages"|"custom")`. Tool execution happens inside the graph, not in LiveKit.
+  - **`langchain_sarvam.ChatSarvam`:** supports `bind_tools`, `with_structured_output` and async streaming, and reads `SARVAM_API_KEY`.
+- `agent/tests/test_compat.py`: **10 passed** (`uv run pytest tests`). These are offline tests with no network or keys. They show that a LangGraph graph streams tokens through `LLMAdapter`, that the adapter rejects unsupported stream modes, and that the Sarvam STT, TTS, LLM and `ChatSarvam` constructors accept the planned models, languages and voices.
+- **Not yet verified:** live calls to Sarvam (STT, TTS, LLM streaming and tool calling) with a real key, and a real LiveKit room session.
 
 ## In Progress
 
@@ -37,7 +56,27 @@ _None._
 
 ## Verified Dependency Versions
 
-_None recorded yet._
+Installed and checked offline on 2026-10-21 with Python 3.13.13 on Windows 11. Live API checks are still pending.
+
+| Package | Version |
+|---|---|
+| livekit-agents | 1.8.8 |
+| livekit-plugins-sarvam | 1.8.8 |
+| livekit-plugins-langchain | 1.8.8 |
+| livekit-plugins-silero | 1.8.8 |
+| livekit-plugins-turn-detector | 1.8.8 |
+| livekit-plugins-openai (transitive) | 1.8.8 |
+| livekit (rtc) | 1.1.20 |
+| livekit-api | 1.2.2 |
+| langgraph | 1.2.16 |
+| langchain-core | 1.6.12 |
+| langchain-sarvam | 0.1.2 |
+| sarvamai | 0.1.37 |
+| openai (transitive) | 3.35.1 |
+| onnxruntime (transitive) | 1.31.0 |
+| supabase | 2.33.0 |
+| pytest / pytest-asyncio | 9.1.1 / 1.4.0 |
+| Supabase CLI (npx) | 2.121.0 |
 
 ## Environment Variables
 
@@ -56,6 +95,9 @@ Provisional names, to be confirmed against the SDKs in Phase 0–1:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | dashboard (public) | Supabase anon key, restricted by RLS |
 
 ## Known Limitations
+
+- The Supabase project is in `ap-northeast-2` (Seoul). Since the project became a demo for both India and Australia (2026-10-21), it stays there: Seoul sits between the two. A real client deployment would get its own project in the client's region. The migrations are in the repo, so this means re-linking and running `supabase db push`.
+- Sarvam STT and TTS support only Indian (`*-IN`) language codes, with no `en-AU`. Australian speech will be transcribed as `en-IN`, which needs testing for accuracy. Voices may sound Indian-accented; `amelia` and `sophia` are labelled International but are untested. See Scope in plan.md.
 
 - Environment variable names are provisional until checked against the installed SDKs.
 

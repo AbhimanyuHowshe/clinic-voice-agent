@@ -15,6 +15,17 @@ Everything runs online from Phase 1 onward, and each phase is deployed as it is 
 - **Database and auth:** Supabase free tier.
 - **Caveat:** Vercel's free Hobby plan is for non-commercial use only. It is fine for development and testing, but real clinic use needs Vercel Pro or a host that allows commercial use on its free plan. Decide before the Phase 8 pilot.
 
+## Scope: Demo (decided 2026-10-21)
+
+The project is a **demo** for prospective clients in **India and Australia**. It is not a live clinic deployment.
+
+- Use fictional clinics, doctors, FAQs and patients only. No real patient data.
+- Seed two demo clinics: one in India (`Asia/Kolkata`, Hindi/English/Hinglish) and one in Australia (`Australia/Sydney`, English). This shows per-clinic time zones and languages.
+- **Voice for Australia:** Sarvam focuses on Indian languages and accents. Its English voices are expected to sound Indian-accented. Test how it sounds in Phase 1. If it doesn't suit Australian demos, add an alternative English TTS for that clinic through a LiveKit plugin. Verify the options before choosing.
+- **Region:** the Supabase project is in Seoul (`ap-northeast-2`), between India and Australia. Keep it for the demo. Place the LiveKit agent region close to the database (check which regions LiveKit Cloud offers).
+- **Vercel Hobby:** showing the demo to paying prospects may count as commercial use under Hobby's terms. Check the terms before sharing it with clients, or use a host that allows commercial use.
+- A real client deployment would need its own project in the client's region, plus a review of the client's privacy obligations. For India that means the DPDP Act; for Australia, the Privacy Act and the Australian Privacy Principles for health information.
+
 ## Phase 0 — Project Setup and Compatibility
 
 - [x] Initialize the Git repository.
@@ -22,20 +33,20 @@ Everything runs online from Phase 1 onward, and each phase is deployed as it is 
 - [x] Create `.gitignore`, `.env.example`, and `README.md`.
 - [ ] Set up LiveKit Cloud.
 - [ ] Set up Sarvam AI API access.
-- [ ] Set up Supabase.
-- [ ] Verify current LiveKit Agents SDK versions.
-- [ ] Verify Sarvam STT and TTS compatibility.
-- [ ] Verify LangChain and LangGraph package compatibility.
-- [ ] Verify supported LLM streaming integration.
+- [x] Set up Supabase. (Done 2026-10-21; the project is in Seoul, which is acceptable for the India and Australia demo. See Scope.)
+- [x] Verify current LiveKit Agents SDK versions. (1.8.8)
+- [ ] Verify Sarvam STT and TTS compatibility. (Offline constructor checks pass; live API test pending.)
+- [x] Verify LangChain and LangGraph package compatibility. (An offline test streams through `LLMAdapter`.)
+- [ ] Verify supported LLM streaming integration. (The adapter streams offline; live Sarvam LLM streaming is pending.)
 - [ ] Confirm free-tier quotas and deployment restrictions. (LiveKit Build plan and Vercel Hobby checked 2026-10-21; see Hosting Approach. Supabase still to check.)
-- [ ] Record exact tested dependency versions.
+- [x] Record exact tested dependency versions. (See progress.md; update after the live tests.)
 
 **Deliverable:** repository initialized with verified API access and a documented development environment.
 
 ## Phase 1 — Minimal Voice Agent
 
-- [ ] Set up the Python environment.
-- [ ] Install LiveKit Agents.
+- [x] Set up the Python environment. (uv, `agent/pyproject.toml`)
+- [x] Install LiveKit Agents.
 - [ ] Configure Sarvam STT.
 - [ ] Configure Sarvam TTS.
 - [ ] Configure a compatible LLM.
