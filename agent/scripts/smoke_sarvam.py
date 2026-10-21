@@ -1,8 +1,8 @@
 """Live smoke test for Sarvam TTS, STT and LLM.
 
 Loads SARVAM_API_KEY from agent/.env (never printed), then:
-  1. Synthesizes demo sentences with the LiveKit Sarvam TTS plugin and saves WAV files.
-  2. Transcribes each WAV back with the LiveKit Sarvam STT plugin (round trip).
+  1. Synthesizes three short demo sentences with the LiveKit Sarvam TTS plugin and saves WAV files.
+  2. Transcribes two of them back with the LiveKit Sarvam STT plugin (round trip).
   3. Streams a reply from ChatSarvam (LangChain) and checks tool calling.
 
 Usage: uv run python scripts/smoke_sarvam.py [output_dir]
@@ -21,12 +21,12 @@ from livekit.plugins import sarvam
 
 AGENT_DIR = Path(__file__).resolve().parent.parent
 
+# Kept deliberately small to limit Sarvam API spend: 3 TTS calls, 2 STT calls,
+# 2 short LLM calls (~150 characters of speech in total).
 SAMPLES = [
-    ("hi_priya", "hi-IN", "priya", "नमस्ते, मैं क्लिनिक की रिसेप्शनिस्ट हूँ। मैं आपकी क्या मदद कर सकती हूँ?"),
-    ("hinglish_priya", "hi-IN", "priya", "Namaste! Kya aap kal subah Dr. Sharma ke saath appointment book karna chahenge?"),
-    ("en_priya", "en-IN", "priya", "Hello, thank you for calling the clinic. How can I help you today?"),
-    ("en_amelia", "en-IN", "amelia", "G'day, thanks for calling the clinic. Would you like to book an appointment for Tuesday?"),
-    ("en_sophia", "en-IN", "sophia", "G'day, thanks for calling the clinic. Would you like to book an appointment for Tuesday?"),
+    ("hinglish_priya", "hi-IN", "priya", "Namaste! Kya aap kal subah appointment book karna chahenge?", True),
+    ("en_priya", "en-IN", "priya", "Hello, how can I help you today?", True),
+    ("en_amelia", "en-IN", "amelia", "Hello, how can I help you today?", False),
 ]
 
 
@@ -37,7 +37,7 @@ def _err(e: Exception) -> str:
 async def run_speech(out_dir: Path, session: aiohttp.ClientSession) -> bool:
     ok = True
     stt = sarvam.STT(language="unknown", model="saaras:v4", http_session=session)
-    for name, lang, speaker, text in SAMPLES:
+    for name, lang, speaker, text, transcribe in SAMPLES:
         tts = sarvam.TTS(
             target_language_code=lang, model="bulbul:v3", speaker=speaker, http_session=session
         )
@@ -51,6 +51,8 @@ async def run_speech(out_dir: Path, session: aiohttp.ClientSession) -> bool:
         except Exception as e:
             print(f"[TTS FAIL] {name}: {_err(e)}")
             ok = False
+            continue
+        if not transcribe:
             continue
         try:
             t0 = time.perf_counter()
@@ -70,7 +72,7 @@ async def run_llm() -> bool:
     from langchain_sarvam import ChatSarvam
 
     ok = True
-    chat = ChatSarvam(model="sarvam-105b")
+    chat = ChatSarvam(model="sarvam-105b", max_tokens=150, reasoning_effort="low")
     prompt = [
         ("system", "You are a polite clinic receptionist. Reply in one short sentence, in the patient's language."),
         ("human", "Namaste, clinic kitne baje khulta hai?"),
