@@ -79,13 +79,26 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## In Progress
 
-_None._
+- **Phase 1 prompt fix (WIP, commit `9b47765`).** `test_receptionist_reply[en]` fails. The reply to "I'd like to see a doctor next week" asks for name and doctor without acknowledging the request, and once it answered in Hindi. The other 6 live tests pass.
 
-## Not Yet Done (Phase 0)
+## Pending User Actions
 
-- LiveKit Cloud, Sarvam AI, and Supabase accounts and API access not set up or verified (the user does this; Claude never handles the keys).
-- SDK and package compatibility not yet verified; no dependency versions recorded.
-- Free-tier quotas not yet confirmed.
+- **Rotate the LiveKit API key.** Real credentials had been pasted into `dashboard/.env.example`; they were never committed, but a Claude session saw them. Put the new values only in `agent/.env` and `dashboard/.env.local`.
+- **Fix line 12 of `agent/.env`**, which `python-dotenv` cannot parse.
+- **Run `lk cloud auth`** (it opens a browser). Both `lk agent dev` and `lk agent deploy` need it.
+- **Push to GitHub:** 8 commits on `main` are local only (up to `9b47765`). Waiting for the user's go-ahead.
+- **Confirm the Supabase region.** This log records it as Mumbai (user report), but `plan.md` and Known Limitations say Seoul (`ap-northeast-2`). Check `supabase projects list`.
+
+## Open Questions
+
+- **CRM / practice-management integration** (asked 2026-10-21): there is none, and no CRM is in the plan. Supabase is the system of record. The suggested approach is a sync layer from Supabase to an external system added after the core booking flow works, targeting clinic booking software (e.g. Cliniko, Halaxy, HotDoc, Practo) rather than a sales CRM. API access and terms are not verified. Waiting for the user to name a target system.
+
+## Not Yet Done
+
+- Supabase: no connection test from code yet, no migrations, and free-tier quotas not checked.
+- Phase 1: voice retest after the endpointing and prompt changes; interruption, silence and timeout tests; Hindi and Hinglish tested by speech (so far only text tests); `lk agent deploy`; the Next.js voice page and token route; Vercel deployment.
+- A turn-detector model is not enabled; turn-taking relies on VAD plus STT endpointing.
+- No TTS for the Australian clinic yet (Sarvam has no non-Indian voice).
 
 ## Verified Dependency Versions
 
@@ -130,9 +143,13 @@ Provisional names, to be confirmed against the SDKs in Phase 0–1:
 ## Known Limitations
 
 - The Supabase project is in `ap-northeast-2` (Seoul). Since the project became a demo for both India and Australia (2026-10-21), it stays there: Seoul sits between the two. A real client deployment would get its own project in the client's region. The migrations are in the repo, so this means re-linking and running `supabase db push`.
-- Sarvam STT and TTS support only Indian (`*-IN`) language codes, with no `en-AU`. Australian speech will be transcribed as `en-IN`, which needs testing for accuracy. Voices may sound Indian-accented; `amelia` and `sophia` are labelled International but are untested. See Scope in plan.md.
+- Sarvam STT and TTS support only Indian (`*-IN`) language codes, with no `en-AU`. Australian speech will be transcribed as `en-IN`, which needs testing for accuracy. The live API rejects `amelia` (and presumably `sophia`) and offers only Indian voices, so the Australian clinic needs a different TTS provider. See Scope in plan.md.
 
-- Environment variable names are provisional until checked against the installed SDKs.
+- `SARVAM_API_KEY` and `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are confirmed working with the installed SDKs (smoke test and worker registration, 2026-10-21). The Supabase and dashboard variable names are still provisional.
+- `sarvam-105b` is unusable for voice (about 8 s to first token, empty replies at small `max_tokens`). Use `sarvam-105b-conversations`.
+- STT returns Hinglish speech in Devanagari script (`transcribe` mode). `codemix` and `translit` modes are untested.
+- In dev mode the first call waits about 2 s for a worker process (no warmed process). VAD ran 0.5 s slower than realtime once at session start on the development laptop.
+- With no clinic data, the LLM invents facts (opening hours) unless the prompt forbids it. FAQ answers must be grounded in `clinic_faqs` (Phase 2/3).
 
 ## Secrets Handling
 
