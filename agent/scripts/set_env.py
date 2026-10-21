@@ -39,10 +39,19 @@ def set_var(path: Path, name: str, value: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def clean(value: str) -> str:
+    """Strip quotes and any pasted ``NAME=`` prefixes of our own variables (e.g. a whole .env line)."""
+    known = {name for _, targets in VALUES for _, name in targets}
+    value = value.strip().strip('"').strip("'")
+    while "=" in value and value.split("=", 1)[0].strip() in known:
+        value = value.split("=", 1)[1].strip().strip('"').strip("'")
+    return value
+
+
 def main() -> None:
     print("Paste each value and press Enter (input is hidden). Press Enter alone to skip.\n")
     for label, targets in VALUES:
-        value = getpass.getpass(f"{label}: ").strip().strip('"').strip("'")
+        value = clean(getpass.getpass(f"{label}: "))
         if not value:
             print("  skipped")
             continue
