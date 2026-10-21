@@ -22,6 +22,9 @@ Record only verified results here. Do not mark an item done until it has actuall
 - Created `agent/.env.example` and `dashboard/.env.example` with placeholders only.
 - Verified with `git check-ignore` that `agent/.env` and `dashboard/.env.local` are ignored and `agent/.env.example` is tracked.
 
+- Decided on online hosting from Phase 1: the agent on LiveKit Cloud and one Next.js app (patient voice page and staff dashboard) on Vercel. Added a Hosting Approach section and deployment tasks to `plan.md`.
+- Checked from vendor docs: the LiveKit Cloud Build (free) plan includes agent deployment, 1,000 agent minutes and 5,000 WebRTC minutes per month, 5 concurrent agent sessions, a hard usage cap, and 10–20 s cold starts. Vercel Hobby is non-commercial only. The `livekit-plugins-sarvam` plugin provides Sarvam STT (Saarika/Saaras), TTS (Bulbul) and LLM (sarvam-30b/105b, with tool calling) and reads `SARVAM_API_KEY`. None of this has been installed or tested yet.
+
 ## In Progress
 
 _None._

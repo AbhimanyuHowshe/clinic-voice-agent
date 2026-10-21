@@ -6,6 +6,15 @@ Build a cloud-hosted clinic receptionist using LiveKit Agents, Sarvam AI, LangCh
 
 Prioritize a working browser voice prototype, real appointment booking, and dependable staff controls. Use free-tier services wherever practical.
 
+## Hosting Approach (decided 2026-10-21)
+
+Everything runs online from Phase 1 onward, and each phase is deployed as it is built.
+
+- **Voice agent:** LiveKit Cloud agent hosting. The free Build plan includes 1,000 agent minutes and 5,000 WebRTC minutes per month, up to 5 concurrent agent sessions, and a 1 GB build limit. Usage stops at the cap rather than being billed. Idle agents may cold-start with a 10–20 s delay.
+- **Web app:** a single Next.js app on Vercel. It contains the public patient voice page (`/`) and the authenticated staff dashboard (`/dashboard`).
+- **Database and auth:** Supabase free tier.
+- **Caveat:** Vercel's free Hobby plan is for non-commercial use only. It is fine for development and testing, but real clinic use needs Vercel Pro or a host that allows commercial use on its free plan. Decide before the Phase 8 pilot.
+
 ## Phase 0 — Project Setup and Compatibility
 
 - [x] Initialize the Git repository.
@@ -18,7 +27,7 @@ Prioritize a working browser voice prototype, real appointment booking, and depe
 - [ ] Verify Sarvam STT and TTS compatibility.
 - [ ] Verify LangChain and LangGraph package compatibility.
 - [ ] Verify supported LLM streaming integration.
-- [ ] Confirm free-tier quotas and deployment restrictions.
+- [ ] Confirm free-tier quotas and deployment restrictions. (LiveKit Build plan and Vercel Hobby checked 2026-10-21; see Hosting Approach. Supabase still to check.)
 - [ ] Record exact tested dependency versions.
 
 **Deliverable:** repository initialized with verified API access and a documented development environment.
@@ -34,8 +43,12 @@ Prioritize a working browser voice prototype, real appointment booking, and depe
 - [ ] Enable Hindi, English, and Hinglish tests.
 - [ ] Test interruptions, silence, and timeouts.
 - [ ] Run a browser-based voice session.
+- [ ] Deploy the agent to LiveKit Cloud (`lk agent deploy`) as soon as a minimal agent works.
+- [ ] Scaffold the Next.js app with a public patient voice page and a server-side LiveKit token route.
+- [ ] Deploy the Next.js app to Vercel from GitHub (auto-deploy on push to `main`).
+- [ ] Verify a voice conversation works end to end on the public URL, not only locally.
 
-**Deliverable:** patient and receptionist can converse through a browser.
+**Deliverable:** patient and receptionist can converse through a browser, running online.
 
 **Acceptance criteria:**
 
