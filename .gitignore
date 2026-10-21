@@ -66,3 +66,6 @@ desktop.ini
 
 # ---- Claude Code local settings ----
 .claude/settings.local.json
+
+# Sarvam smoke-test audio output
+agent/smoke_output/
