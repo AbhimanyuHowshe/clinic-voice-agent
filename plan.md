@@ -9,8 +9,8 @@ Prioritize a working browser voice prototype, real appointment booking, and depe
 ## Phase 0 — Project Setup and Compatibility
 
 - [x] Initialize the Git repository.
-- [ ] Create the project directory structure.
-- [ ] Create `.gitignore`, `.env.example`, and `README.md`.
+- [x] Create the project directory structure.
+- [x] Create `.gitignore`, `.env.example`, and `README.md`.
 - [ ] Set up LiveKit Cloud.
 - [ ] Set up Sarvam AI API access.
 - [ ] Set up Supabase.
