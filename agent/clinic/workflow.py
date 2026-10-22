@@ -92,6 +92,8 @@ class SessionState:
     end_call_requested: bool = False
     # The patient's latest message read as an answer to a held action: "yes", "no" or None.
     last_answer: str | None = None
+    # Name the caller gave when looking up their appointments.
+    caller_name: str | None = None
     # Phone number capture across several patient messages (see collect_phone_digits).
     awaiting_phone: bool = False
     phone_digits: str = ""
@@ -391,6 +393,16 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         if not same:
             state.pending = action
 
+    def already_confirmed() -> str | None:
+        """If the patient already said yes to this exact held action, say so instead of re-asking."""
+        p = state.pending
+        if p is not None and state.turn > p.prepared_turn and state.last_answer == "yes":
+            return (
+                f"The patient has ALREADY said yes to: {p.summary}. Do not ask again: call "
+                "confirm_pending_action now."
+            )
+        return None
+
     def resolve_phone(raw: str) -> str | None:
         """The model's number, else the number joined from the patient's messages, else None.
 
@@ -499,6 +511,8 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             kind="book", prepared_turn=state.turn, summary=summary,
             doctor=doc, starts_at=slot, patient_name=name, phone=phone,
         ))
+        if note := already_confirmed():
+            return note
         return (
             f"Held, NOT booked yet: {summary}. Read these details back to the patient and ask them to "
             "confirm. Call confirm_pending_action only after they say yes."
@@ -516,13 +530,21 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         return state.found[appointment_number - 1]
 
     @tool
-    async def find_appointments(patient_phone: str, purpose: Literal["cancel", "reschedule", "check"]) -> str:
+    async def find_appointments(
+        patient_name: str, patient_phone: str, purpose: Literal["cancel", "reschedule", "check"]
+    ) -> str:
         """List the patient's upcoming appointments, found by the phone number used to book.
 
         Args:
+            patient_name: The caller's name, as they said it. Ask for it first if you don't have it.
             patient_phone: The mobile number used when booking, digits only.
             purpose: What the patient wants to do: "cancel", "reschedule", or "check".
         """
+        name = (patient_name or "").strip()
+        if len(name) < 2 or name.lower() in {"unknown", "patient", "caller", "none", "n/a"}:
+            # Asked in code so the model cannot skip it (real call: cancel without a name).
+            return "Ask the caller for their name first, then call find_appointments again."
+        state.caller_name = name[:120]
         phone = resolve_phone(patient_phone)
         if phone is None:
             return phone_problem(state.phone_digits or patient_phone, state.clinic.country)
@@ -553,7 +575,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             kind="cancel", prepared_turn=state.turn, summary=summary,
             appointment_id=appt["id"], phone=state.found_phone,
         ))
-        return f"Held, NOT cancelled yet: {summary}. Ask the patient to confirm."
+        return already_confirmed() or f"Held, NOT cancelled yet: {summary}. Ask the patient to confirm."
 
     @tool
     async def prepare_reschedule(appointment_number: int, new_date: str, new_time: str) -> str:
@@ -578,7 +600,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             kind="reschedule", prepared_turn=state.turn, summary=summary,
             doctor=doc, starts_at=slot, appointment_id=appt["id"], phone=state.found_phone,
         ))
-        return f"Held, NOT changed yet: {summary}. Ask the patient to confirm."
+        return already_confirmed() or f"Held, NOT changed yet: {summary}. Ask the patient to confirm."
 
     @tool
     async def confirm_pending_action() -> str:
@@ -867,8 +889,9 @@ Booking an appointment (one question at a time):
 5. Only after the patient clearly says yes, call confirm_pending_action. Say the appointment
    is booked only if it returns BOOKED.
 
-Cancelling or moving an appointment: ask for the 10-digit mobile number used to book, slowly
-(same wording as above), and call
+Cancelling or moving an appointment: first ask for the caller's name (if you don't have it yet)
+and address them by it, then ask for the 10-digit mobile number used to book, slowly (same
+wording as above), and call
 find_appointments with the purpose. If there is more than one, ask which one. Ask for confirmation only once:
 the read-back of the change also confirms which appointment it is. For a new time, call
 check_availability first. Then call prepare_cancellation or prepare_reschedule, read the change

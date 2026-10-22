@@ -139,6 +139,10 @@ async def test_cancel_by_phone_number_after_yes():
             user_input="I need to cancel my appointment. My phone number is 9876543210."
         )
         await result.expect.contains_message(role="assistant").judge(
+            judge_llm, intent="Asks for the caller's name. Does not say that anything has already been cancelled."
+        )
+        result = await session.run(user_input="My name is Rahul Verma.")
+        await result.expect.contains_message(role="assistant").judge(
             judge_llm,
             intent="Mentions the appointment with Dr. Sharma at 9:15 AM and asks whether to cancel it "
             "(e.g. 'Shall I cancel this?'). Does not ask for a reference number and does not say it is "
