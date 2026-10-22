@@ -48,12 +48,27 @@ def clean(value: str) -> str:
     return value
 
 
+def suspicious(value: str) -> str | None:
+    """Catch pasted placeholders, several .env lines at once, or stray whitespace."""
+    known = {name for _, targets in VALUES for _, name in targets}
+    if "your-" in value or "your_" in value:
+        return "it is still a placeholder from .env.example"
+    if any(f"{name}=" in value for name in known):
+        return "it contains a variable name, so several lines were probably pasted together"
+    if any(ch.isspace() for ch in value):
+        return "it contains spaces or line breaks"
+    return None
+
+
 def main() -> None:
     print("Paste each value and press Enter (input is hidden). Press Enter alone to skip.\n")
     for label, targets in VALUES:
         value = clean(getpass.getpass(f"{label}: "))
         if not value:
             print("  skipped")
+            continue
+        if problem := suspicious(value):
+            print(f"  NOT saved: {problem}. Paste only the value itself.")
             continue
         for path, name in targets:
             set_var(path, name, value)
