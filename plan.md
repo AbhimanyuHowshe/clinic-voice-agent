@@ -217,6 +217,25 @@ END
 
 **Deliverable:** telephone-based clinic receptionist.
 
+## Phase 10 — Google Sheets Sync (deferred until after the demo; decided 2026-10-22)
+
+The client runs their work in Google Sheets. Supabase stays the source of truth; Sheets is a synced working view for the client.
+
+- [ ] Get the client's current Sheet layout (tabs, column headers, sample rows).
+- [ ] Supabase → Sheets: write appointment changes to the Sheet after the database commit succeeds; retry on failure and run a periodic full refresh to repair drift.
+- [ ] Sheets → Supabase: Apps Script edit trigger calls a validated Supabase function; rejected edits are flagged in a Status column.
+- [ ] Ownership rules:
+  - FAQs, prices, services: Sheet → Supabase.
+  - Doctor timings, holidays, breaks: Sheet → Supabase (validated).
+  - Appointments: two-way, with Supabase winning on conflict.
+  - Agent ON/OFF: Sheet → Supabase (validated, audited).
+  - Call logs and audit records: Supabase → Sheet, read-only.
+- [ ] Protect header rows; use dropdowns and date validation to limit typing errors.
+- [ ] Never sync secrets; keep Google credentials in environment variables only.
+- [ ] Tests: conflicting Sheet edits, malformed rows, Sheets API failures, retries and idempotency.
+
+**Deliverable:** client keeps working in Google Sheets while bookings stay concurrency-safe in Supabase.
+
 ## Implementation Priorities
 
 1. Verify LiveKit and Sarvam compatibility.
@@ -227,6 +246,7 @@ END
 6. Implement and test agent availability controls.
 7. Deploy the MVP.
 8. Add telephone support.
+9. Add Google Sheets sync for the client (after the demo).
 
 ## Release Gate
 
