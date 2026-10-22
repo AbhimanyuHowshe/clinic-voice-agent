@@ -303,9 +303,18 @@ def detect_language(text: str) -> str | None:
     hindi_words = sum(w in _HINGLISH_WORDS for w in words)
     if hindi_words >= 2:
         return "Hindi"
-    if len(words) >= 3 and hindi_words == 0 and not devanagari:
+    # Digits, "no"/"now" (often Hindi "nau" = 9) and yes/no words say nothing about the
+    # language: "No, no, no, no" must not switch a Hindi conversation to English.
+    real = [w for w in words if w not in _LANGUAGE_NEUTRAL]
+    if len(real) >= 3 and hindi_words == 0 and not devanagari:
         return "English"
     return None
+
+
+def nau_only(text: str) -> int:
+    """How many words, if the message is ONLY "no"/"now"-like words (Hindi "nau" = 9), else 0."""
+    words = re.findall(r"[^\s.,!?;:\-]+", (text or "").lower())
+    return len(words) if words and all(w in _NAU_SOUNDALIKES for w in words) else 0
 
 
 _YES = {
@@ -317,6 +326,11 @@ _NO = {
     "no", "nope", "not", "don't", "dont", "wait", "stop", "later", "change", "different", "another",
     "nahi", "nahin", "nai", "na", "mat", "ruko", "ruk", "नहीं", "नही", "मत", "रुको", "ना",
 }
+# Words that don't show which language the patient is speaking (see detect_language).
+_LANGUAGE_NEUTRAL = (
+    set(_DIGIT_WORDS) | _NAU_SOUNDALIKES | set(_REPEAT_WORDS) | _YES | _NO
+    | {"ok", "okay", "please", "thank", "thanks", "sorry", "hello", "hi", "bye", "doctor", "dr", "am", "pm"}
+)
 
 
 def detect_answer(text: str, pending_kind: str | None = None) -> str | None:
@@ -783,6 +797,11 @@ def collect_phone_digits(state: SessionState, text: str) -> str | None:
     state.digits_turn = state.turn
     collecting = state.awaiting_phone or 0 < len(state.phone_digits) < 10
     digits = spoken_digits(text) or (fuzzy_digits(text) if collecting else "")
+    nau = nau_only(text)
+    if collecting and nau and (nau >= 2 or state.phone_digits):
+        # Real call: "nau nau nau" was transcribed as "No, no, no." While collecting a number,
+        # a message of only no-words is 9s (a single "no" only once digits have started).
+        digits = "9" * nau
     if not (collecting and digits):
         state.phone_note = None
         if not digits:
@@ -838,6 +857,8 @@ def build_graph(model: BaseChatModel, state: SessionState):
             messages.append(SystemMessage(LANGUAGE_RULE[state.language]))
             p = state.pending
             state.last_answer = detect_answer(last_patient.text, p.kind if p else None)
+            if state.awaiting_phone and nau_only(last_patient.text):
+                state.last_answer = None  # "nau nau" (9 9), not a refusal
             if p is not None and state.turn > p.prepared_turn and state.last_answer == "no":
                 # The patient declined: drop the held action in code, not by trusting the model.
                 logger.info("patient declined held %s; discarded", p.kind)

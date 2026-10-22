@@ -56,7 +56,7 @@ def test_normalize_phone(raw, ok):
     ("मुझे डॉक्टर से मिलना है", "Hindi"),
     ("Clinic kitne baje khulta hai?", "Hindi"),
     ("Mujhe kal appointment chahiye", "Hindi"),
-    ("Yes, please book it.", "English"),
+    ("Yes, please book it.", None),  # a yes/no reply never switches language
     # Short fragments are ambiguous: keep the current language.
     ("3 बजे", None),
     ("Doctor Anjali.", None),
@@ -585,3 +585,36 @@ async def test_replay_missing_last_nine_heard_as_naini():
     h += [AIMessage("Please tell me the last digit."), HumanMessage("Naini.")]
     await graph.ainvoke({"messages": h})
     assert "9999999999" in model.seen[-1][-1].content
+
+
+@pytest.mark.parametrize("text", ["No, no, no.", "No, no, no, no.", "Nine nine nine", "Yes, okay please", "Triple 9 double 5"])
+def test_numbers_and_yes_no_do_not_switch_language(text):
+    assert detect_language(text) is None
+
+
+async def test_replay_nau_nau_nau_heard_as_no_no_no():
+    """Real call 2026-10-22: Hindi 'nau nau nau' transcribed as 'No, no, no.' switched to English."""
+    from tests.fakes import ScriptedChatModel
+
+    state = make_state()
+    state.language = "Hindi"
+    model = ScriptedChatModel(replies=[AIMessage(content="ok")] * 4, seen=[])
+    graph = build_graph(model, state)
+    state.awaiting_phone = True
+    h = [HumanMessage("No, no, no.")]
+    await graph.ainvoke({"messages": h})
+    assert state.language == "Hindi" and state.phone_digits == "999" and state.last_answer is None
+    h += [AIMessage("ok"), HumanMessage("No, no, no.")]
+    await graph.ainvoke({"messages": h})
+    h += [AIMessage("ok"), HumanMessage("No, no, no, no.")]
+    await graph.ainvoke({"messages": h})
+    assert state.phone_digits == "9999999999" and state.language == "Hindi"
+    assert "9999999999" in model.seen[-1][-1].content
+
+
+async def test_single_no_is_not_a_digit_before_any_digits():
+    state = make_state()
+    state.awaiting_phone = True
+    model = ScriptedChatModel(replies=[AIMessage(content="ok")], seen=[])
+    await build_graph(model, state).ainvoke({"messages": [HumanMessage("No.")]})
+    assert state.phone_digits == ""
