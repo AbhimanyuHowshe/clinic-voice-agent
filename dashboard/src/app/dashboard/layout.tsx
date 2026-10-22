@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { getStaff } from "@/lib/staff";
 import { signOut } from "./actions";
 import { FlashError } from "./flash-error";
+import { LiveRefresh } from "./live-refresh";
 
 const NAV = [
   { href: "/dashboard", label: "Overview" },
@@ -29,9 +30,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
               </p>
             )}
           </div>
-          <form action={signOut}>
-            <button className="btn">Sign out</button>
-          </form>
+          <div className="flex items-center gap-3">
+            {staff && <LiveRefresh />}
+            <form action={signOut}>
+              <button className="btn">Sign out</button>
+            </form>
+          </div>
         </div>
         {staff && (
           <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2">
