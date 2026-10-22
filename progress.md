@@ -77,16 +77,23 @@ Record only verified results here. Do not mark an item done until it has actuall
 - Added `test_receptionist_asks_name_then_uses_it` (two turns).
 - **Live tests: 6 passed, 1 failed (two runs).** The failure is `test_receptionist_reply[en]` ("I'd like to see a doctor next week"). The reply asks for name and doctor, but the judge says it doesn't acknowledge the request, and in one run it answered in Hindi instead of English. Possible causes: the Hinglish greeting pulls later replies toward Hindi, or the judge's wording is too strict. Investigate before changing the test. Offline suite: 10 passed, 7 skipped.
 
+### 2026-10-22: Live test fixes (commit `3aaaaf6`)
+- **Test-harness race:** `on_enter`'s Hinglish greeting landed inside `session.run()`, so `judge()` graded the greeting, not the reply. Added `start_after_greeting()` to wait for the greeting to finish playing.
+- **Real bug found after that:** the agent replied in Hindi to English messages, following its own Hinglish greeting. The prompt now follows the patient's latest message. In the following 7 runs, no judge flagged a Hindi reply to English.
+- Added concrete phrasing for the acknowledgement and the read-back ("..., is that right?"). One run still said "I have noted...". That run used the older prompt; whether it recurs with the concrete phrasing is unverified.
+- Live suite **not yet consistently green.** Over 4 runs: 7/7, 6/7, 5/7, 6/7. The failures were mostly the judge penalising the read-back question (the test intent is now reworded but **not rerun**) and sometimes not using the name "Rahul". The last run hit **Sarvam 429 rate limits**.
+- The user wants to show the MVP to a client today. Paused live test runs to save Sarvam quota; the worker is running locally for the demo via the Agents Playground.
+
 ## In Progress
 
-- **Phase 1 prompt fix (WIP, commit `9b47765`).** `test_receptionist_reply[en]` fails. The reply to "I'd like to see a doctor next week" asks for name and doctor without acknowledging the request, and once it answered in Hindi. The other 6 live tests pass.
+- **Live prompt suite:** rerun after the demo with the reworded read-back test intent. Run tests one file at a time to avoid Sarvam 429s.
 
 ## Pending User Actions
 
 - **Rotate the LiveKit API key.** Real credentials had been pasted into `dashboard/.env.example`; they were never committed, but a Claude session saw them. Put the new values only in `agent/.env` and `dashboard/.env.local`.
 - **Fix line 12 of `agent/.env`**, which `python-dotenv` cannot parse.
 - **Run `lk cloud auth`** (it opens a browser). Both `lk agent dev` and `lk agent deploy` need it.
-- **Push to GitHub:** 8 commits on `main` are local only (up to `9b47765`). Waiting for the user's go-ahead.
+- **Push to GitHub:** 10 commits on `main` are local only (up to `3aaaaf6`). Waiting for the user's go-ahead.
 - **Confirm the Supabase region.** This log records it as Mumbai (user report), but `plan.md` and Known Limitations say Seoul (`ap-northeast-2`). Check `supabase projects list`.
 
 ## Open Questions
