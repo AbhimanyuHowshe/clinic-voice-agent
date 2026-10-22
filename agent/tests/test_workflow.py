@@ -14,6 +14,7 @@ from clinic.workflow import (
     detect_language,
     match_doctor,
     normalize_phone,
+    summarize_slots,
     parse_time,
 )
 from tests.fakes import CLINIC, FAQS, MEHTA, SHARMA, FakeRepo, ScriptedChatModel, next_open_day
@@ -51,9 +52,14 @@ def test_normalize_phone(raw, ok):
 @pytest.mark.parametrize("text,lang", [
     ("I want to see a doctor tomorrow", "English"),
     ("मुझे डॉक्टर से मिलना है", "Hindi"),
-    ("Clinic kitne baje khulta hai?", "Hinglish"),
-    ("Mujhe kal appointment chahiye", "Hinglish"),
+    ("Clinic kitne baje khulta hai?", "Hindi"),
+    ("Mujhe kal appointment chahiye", "Hindi"),
     ("Yes, please book it.", "English"),
+    # Short fragments are ambiguous: keep the current language.
+    ("3 बजे", None),
+    ("Doctor Anjali.", None),
+    ("999.", None),
+    ("Radhe Radhe.", None),
 ])
 def test_detect_language(text, lang):
     assert detect_language(text) == lang
@@ -70,6 +76,37 @@ def test_parse_time_accepts_common_forms(raw, expected):
 @pytest.mark.parametrize("raw", ["25:00", "nine", "10", "13 PM", ""])
 def test_parse_time_rejects(raw):
     assert parse_time(raw) is None
+
+
+def test_slot_summary_shows_gaps_as_ranges():
+    from datetime import datetime as dt, timedelta as td
+    from zoneinfo import ZoneInfo
+
+    base = dt(2026, 10, 23, 9, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+    morning = [base + td(minutes=15 * i) for i in range(16)]  # 9:00-12:45
+    evening = [base + td(hours=8) + td(minutes=15 * i) for i in range(12)]  # 17:00-19:45
+    text = summarize_slots(morning + evening)
+    assert "every 15 minutes from 9:00 AM to 12:45 PM, and from 5:00 PM to 7:45 PM" in text
+    assert "NOT free" in text
+    few = summarize_slots(morning[:3])
+    assert "9:00 AM, 9:15 AM and 9:30 AM" in few
+
+
+async def test_language_sticks_through_short_replies():
+    from tests.fakes import ScriptedChatModel
+
+    state = make_state()
+    model = ScriptedChatModel(replies=[AIMessage(content="ok")] * 3, seen=[])
+    graph = build_graph(model, state)
+    history = [HumanMessage("मुझे कल डॉक्टर से मिलना है")]
+    await graph.ainvoke({"messages": history})
+    assert state.language == "Hindi"
+    history += [AIMessage("जी"), HumanMessage("3 PM")]
+    await graph.ainvoke({"messages": history})
+    assert state.language == "Hindi" and "Devanagari" in model.seen[-1][-1].content
+    history += [AIMessage("ठीक है"), HumanMessage("Sorry, can we speak in English please?")]
+    await graph.ainvoke({"messages": history})
+    assert state.language == "English"
 
 
 async def test_slots_are_spoken_in_clinic_time_not_utc():

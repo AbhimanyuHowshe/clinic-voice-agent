@@ -33,9 +33,10 @@ DEFAULT_CLINIC_SLUG = os.environ.get("DEFAULT_CLINIC_SLUG", "sanjeevani")
 AVAILABILITY_RECHECK_SECONDS = 60
 
 GREETING = (
-    "Greet the patient warmly in {language}, say the clinic name, and ask how you can help. "
-    "One short sentence."
+    "Greet the patient warmly in English, say the clinic name, and ask how you can help. "
+    "{hindi}Keep it short."
 )
+HINDI_OFFER = "Then add one short sentence in Hindi, in Devanagari script, saying they can also speak Hindi. "
 GOODBYE_UNAVAILABLE = (
     "The clinic has just switched off the online receptionist. Please call the clinic directly. Goodbye."
 )
@@ -60,8 +61,8 @@ class Receptionist(Agent):
         self.state = state
 
     async def on_enter(self) -> None:
-        language = "Hinglish" if self.state.clinic.voice_language == "hi-IN" else "English"
-        self.session.generate_reply(instructions=GREETING.format(language=language))
+        hindi = HINDI_OFFER if self.state.clinic.voice_language == "hi-IN" else ""
+        self.session.generate_reply(instructions=GREETING.format(hindi=hindi))
 
 
 async def watch_availability(session: AgentSession, state: SessionState, policy: str) -> None:
@@ -135,8 +136,9 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=ctx.proc.userdata["vad"],
         stt=sarvam.STT(language="unknown", model="saaras:v4"),
         tts=sarvam.TTS(target_language_code=clinic.voice_language, model="bulbul:v3", speaker="priya"),
-        # Sarvam transcripts can land after the default 0.5s endpoint, cutting the patient off.
-        turn_handling={"endpointing": {"min_delay": 0.8}},
+        # Sarvam transcripts can land after the default 0.5s endpoint, and patients pause while
+        # reading out phone numbers; waiting longer stops the agent cutting them off.
+        turn_handling={"endpointing": {"min_delay": 1.2, "max_delay": 4.0}},
     )
 
     if not availability.get("available"):

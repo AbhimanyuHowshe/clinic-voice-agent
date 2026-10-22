@@ -38,7 +38,7 @@ from .repository import Clinic, Doctor, Faq, Repository
 logger = logging.getLogger("clinic.workflow")
 
 # How many free slots to read out at once; long lists are hard to follow by voice.
-MAX_SLOTS_SPOKEN = 6
+MAX_SLOTS_LISTED = 8
 # How far ahead the agent may book or look for the next free day.
 BOOKING_HORIZON_DAYS = 30
 NEXT_DAY_SEARCH = 7
@@ -85,6 +85,8 @@ class SessionState:
     actions: list[str] = field(default_factory=list)
     escalation_reason: str | None = None
     callback_phone: str | None = None
+    # Current reply language; changes only when the patient clearly switches.
+    language: str = "English"
     # Upcoming appointments found for a phone number (find_appointments), in the order read out.
     found_phone: str | None = None
     found: list[dict[str, Any]] = field(default_factory=list)
@@ -161,14 +163,23 @@ _HINGLISH_WORDS = {
 }
 
 
-def detect_language(text: str) -> str:
-    """Language to reply in, from the patient's latest message: Hindi, Hinglish or English."""
-    if re.search(r"[ऀ-ॿ]", text or ""):  # Devanagari block
+def detect_language(text: str) -> str | None:
+    """Reply language implied by a patient message: "Hindi", "English", or None if unclear.
+
+    Short fragments ("3 बजे", "Doctor Anjali", "999") return None so the conversation keeps
+    its current language instead of flipping every turn. Hinglish counts as Hindi.
+    """
+    text = text or ""
+    devanagari = re.findall(r"[\u0900-\u097F]+", text)
+    if len(devanagari) >= 2:
         return "Hindi"
-    words = re.findall(r"[a-z]+", (text or "").lower())
-    if sum(w in _HINGLISH_WORDS for w in words) >= 2:
-        return "Hinglish"
-    return "English"
+    words = re.findall(r"[a-z]+", text.lower())
+    hindi_words = sum(w in _HINGLISH_WORDS for w in words)
+    if hindi_words >= 2:
+        return "Hindi"
+    if len(words) >= 3 and hindi_words == 0 and not devanagari:
+        return "English"
+    return None
 
 
 def speak_time(dt: datetime) -> str:
@@ -180,11 +191,35 @@ def speak_day(day: date) -> str:
 
 
 def summarize_slots(slots: list[datetime]) -> str:
-    shown = ", ".join(speak_time(s) for s in slots[:MAX_SLOTS_SPOKEN])
-    more = len(slots) - MAX_SLOTS_SPOKEN
-    if more > 0:
-        shown += f", and {more} more until {speak_time(slots[-1])}"
-    return shown
+    """Free start times, spoken clearly.
+
+    Up to MAX_SLOTS_LISTED times are listed one by one. Longer lists become explicit ranges
+    ("every 15 minutes from 9:00 AM to 12:45 PM, and from 5:00 PM to 7:45 PM"), so gaps such
+    as a lunch break are obvious and the model cannot mistake them for free time.
+    """
+    if not slots:
+        return "no free times"
+    if len(slots) <= MAX_SLOTS_LISTED:
+        listed = [speak_time(s) for s in slots]
+        text = listed[0] if len(listed) == 1 else ", ".join(listed[:-1]) + " and " + listed[-1]
+        return f"free start times {text}. Any other time is NOT free"
+    step = min(b - a for a, b in zip(slots, slots[1:]))
+    runs: list[list[datetime]] = [[slots[0]]]
+    for prev, cur in zip(slots, slots[1:]):
+        if cur - prev == step:
+            runs[-1].append(cur)
+        else:
+            runs.append([cur])
+    parts = [
+        speak_time(r[0]) if len(r) == 1 else f"from {speak_time(r[0])} to {speak_time(r[-1])}"
+        for r in runs
+    ]
+    text = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + ", and " + parts[-1]
+    minutes = int(step.total_seconds() // 60)
+    return (
+        f"a free start time every {minutes} minutes {text}; every such time in these ranges is free. "
+        "Times outside these ranges are NOT free"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +497,15 @@ def build_tools(state: SessionState) -> list[BaseTool]:
 # ---------------------------------------------------------------------------
 
 
+LANGUAGE_RULE = {
+    "English": "Reply language for this turn: English only. Do not mix in Hindi.",
+    "Hindi": (
+        "Reply language for this turn: simple, polite Hindi written in Devanagari script "
+        "(e.g. \"जी, मैं आपकी मदद करती हूँ\"). Never write Hindi in English letters. Doctor names, "
+        "times and numbers may stay as they are."
+    ),
+}
+
 # Debug logging keeps patient names and phone numbers out of the logs.
 _PRIVATE_ARGS = {"patient_name", "patient_phone", "callback_phone"}
 
@@ -487,13 +531,13 @@ def build_graph(model: BaseChatModel, state: SessionState):
         # calls and tool results stay inside the graph and are never spoken.
         write = get_stream_writer()
         messages = list(gs["messages"])
-        last_patient = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
-        if last_patient is not None:
-            # The model drifts towards the language of its own greeting; pin it each turn.
-            language = detect_language(last_patient.text)
-            messages.append(SystemMessage(f"Reply language for this turn: {language}."))
         if messages and isinstance(messages[-1], ToolMessage):
             logger.info("tool %s -> %s", messages[-1].name, _redact(messages[-1].text)[:160])
+        last_patient = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
+        if last_patient is not None:
+            # Pin the language every turn; it only changes when the patient clearly switches.
+            state.language = detect_language(last_patient.text) or state.language
+            messages.append(SystemMessage(LANGUAGE_RULE[state.language]))
         full = None
         async for chunk in bound.astream(messages):
             if isinstance(chunk.content, str) and chunk.content:
@@ -530,8 +574,8 @@ Today is {now.strftime('%A')} {now.date().isoformat()} and the time is {now.strf
 Clinic phone: {clinic.phone or 'not listed'}. Address: {clinic.address or 'not listed'}.
 
 How to speak:
-- Reply in the language of the patient's latest message: Hindi, English, or Hinglish. If the
-  patient speaks English, reply only in English.
+- Reply only in the language given in the latest "Reply language" note: English, or Hindi in
+  Devanagari script. Never mix the two in one reply, and never write Hindi in English letters.
 - Keep every reply to one or two short sentences. Your words are spoken aloud, so never use
   lists, markdown, emojis, or symbols. Say times like "10:30 AM", not "10:30:00".
 - Start your reply to a new request with a short acknowledgement. If you don't know the
@@ -549,7 +593,10 @@ Booking an appointment (one question at a time):
 1. Find out which doctor or specialty, and the preferred day. Convert words like "tomorrow"
    to a YYYY-MM-DD date using today's date above.
 2. Call check_availability. Offer only the times it returns. Never invent a time.
-3. Ask for the patient's full name and mobile number.
+3. Ask for the patient's full name, then their 10-digit mobile number. Speech recognition
+   often splits a number across several messages (e.g. "98765" then "43210"): join the digits
+   from the patient's consecutive messages. If you have fewer than 10 digits, say the digits
+   you heard and ask for the rest. Never guess digits.
 4. Call prepare_booking, read the details back, and ask "Shall I book this?".
 5. Only after the patient clearly says yes, call confirm_pending_action. Say the appointment
    is booked only if it returns BOOKED.
