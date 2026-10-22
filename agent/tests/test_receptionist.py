@@ -165,3 +165,27 @@ async def test_ends_call_when_patient_is_done():
         result = await session.run(user_input="No, that's all. Thank you, bye!")
         await result.expect.contains_message(role="assistant").judge(judge_llm, intent="Says goodbye.")
         assert agent.state.end_call_requested
+
+
+async def test_spoken_number_then_change_of_mind_books_nothing():
+    repo = FakeRepo()
+    day = next_open_day()
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, make_agent(repo))
+        result = await session.run(
+            user_input=f"Book Dr. Sharma on {day.isoformat()} at 9:30 AM. My name is Radha Krishna and my "
+            "number is triple 9 triple 9 9999."
+        )
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Reads back an appointment with Dr. Sharma at 9:30 AM including the mobile number "
+            "9999999999 (in any digit grouping) and asks whether to book it.",
+        )
+        result = await session.run(user_input="No, I changed my mind. Don't book it.")
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm, intent="Confirms that nothing was booked, or that the booking was not made."
+        )
+        assert repo.appointments == {} and repo.book_calls == 0

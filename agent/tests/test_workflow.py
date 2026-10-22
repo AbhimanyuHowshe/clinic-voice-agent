@@ -13,7 +13,9 @@ from clinic.workflow import (
     build_tools,
     detect_language,
     match_doctor,
+    detect_answer,
     normalize_phone,
+    spoken_digits,
     summarize_slots,
     parse_time,
 )
@@ -146,7 +148,7 @@ async def test_booking_needs_patient_turn_before_confirm():
     repo = FakeRepo()
     state = make_state(repo)
     tools = tools_by_name(state)
-    state.turn = 3
+    state.turn, state.last_answer = 3, "yes"
     held = await tools["prepare_booking"].ainvoke(BOOK_ARGS())
     assert "NOT booked" in held and repo.book_calls == 0
 
@@ -154,7 +156,7 @@ async def test_booking_needs_patient_turn_before_confirm():
     refused = await tools["confirm_pending_action"].ainvoke({})
     assert "not confirmed yet" in refused and repo.book_calls == 0
 
-    state.turn = 4  # patient said yes
+    state.turn, state.last_answer = 4, "yes"  # patient said yes
     done = await tools["confirm_pending_action"].ainvoke({})
     assert done.startswith("BOOKED") and "same phone number" in done
     assert len(repo.appointments) == 1 and state.pending is None
@@ -164,10 +166,10 @@ async def test_re_preparing_same_booking_keeps_the_hold():
     repo = FakeRepo()
     state = make_state(repo)
     tools = tools_by_name(state)
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     await tools["prepare_booking"].ainvoke(BOOK_ARGS())
     key = state.pending.idempotency_key
-    state.turn = 2  # patient said yes; the model re-prepares before confirming
+    state.turn, state.last_answer = 2, "yes"  # patient said yes; the model re-prepares before confirming
     await tools["prepare_booking"].ainvoke(BOOK_ARGS())
     assert state.pending.prepared_turn == 1 and state.pending.idempotency_key == key
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("BOOKED")
@@ -189,7 +191,7 @@ async def test_prepare_booking_rejects_unavailable_time_and_bad_details():
     tools = tools_by_name(make_state())
     args = BOOK_ARGS()
     assert "not free" in await tools["prepare_booking"].ainvoke({**args, "time": "15:00"})
-    assert "phone number looks wrong" in await tools["prepare_booking"].ainvoke({**args, "patient_phone": "123"})
+    assert "only have 3 digits" in await tools["prepare_booking"].ainvoke({**args, "patient_phone": "123"})
     assert "name" in await tools["prepare_booking"].ainvoke({**args, "patient_name": " "})
 
 
@@ -200,6 +202,7 @@ async def test_slot_taken_between_prepare_and_confirm():
     await ta["prepare_booking"].ainvoke(BOOK_ARGS())
     await tb["prepare_booking"].ainvoke({**BOOK_ARGS(), "patient_name": "Other Patient"})
     a.turn = b.turn = 1
+    a.last_answer = b.last_answer = "yes"
     assert (await ta["confirm_pending_action"].ainvoke({})).startswith("BOOKED")
     second = await tb["confirm_pending_action"].ainvoke({})
     assert "no longer available" in second and "Nothing was changed" in second
@@ -211,7 +214,7 @@ async def test_retry_after_network_failure_does_not_double_book():
     state = make_state(repo)
     tools = tools_by_name(state)
     await tools["prepare_booking"].ainvoke(BOOK_ARGS())
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     repo.fail_next_writes = 1
     failed = await tools["confirm_pending_action"].ainvoke({})
     assert "NOT confirmed" in failed and state.pending is not None
@@ -225,7 +228,7 @@ async def test_switched_off_mid_call_blocks_changes():
     state = make_state(repo)
     tools = tools_by_name(state)
     await tools["prepare_booking"].ainvoke(BOOK_ARGS())
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     repo.available = False
     out = await tools["confirm_pending_action"].ainvoke({})
     assert "switched off" in out and repo.book_calls == 0 and not state.changes_allowed
@@ -238,7 +241,7 @@ async def book_one(repo) -> str:
     state = make_state(repo)
     tools = tools_by_name(state)
     await tools["prepare_booking"].ainvoke(BOOK_ARGS())
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     await tools["confirm_pending_action"].ainvoke({})
     return "100000"
 
@@ -261,7 +264,7 @@ async def test_cancel_finds_by_phone_and_needs_confirmation():
     held = await tools["prepare_cancellation"].ainvoke({"appointment_number": 1})
     assert "NOT cancelled" in held
     assert repo.appointments[ref]["status"] == "booked"
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("CANCELLED")
     assert repo.appointments[ref]["status"] == "cancelled"
 
@@ -271,10 +274,10 @@ async def test_find_for_cancel_with_one_appointment_holds_it():
     await book_one(repo)
     state = make_state(repo)
     tools = tools_by_name(state)
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     out = await tools["find_appointments"].ainvoke({"patient_phone": "9876543210", "purpose": "cancel"})
     assert "NOT cancelled" in out and state.pending.kind == "cancel" and state.pending.prepared_turn == 1
-    state.turn = 2
+    state.turn, state.last_answer = 2, "yes"
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("CANCELLED")
 
 
@@ -287,7 +290,7 @@ async def test_reschedule_to_free_slot():
     await tools["find_appointments"].ainvoke({"patient_phone": "9876543210", "purpose": "reschedule"})
     held = await tools["prepare_reschedule"].ainvoke({"appointment_number": 1, "new_date": day, "new_time": "09:30"})
     assert "NOT changed" in held
-    state.turn = 1
+    state.turn, state.last_answer = 1, "yes"
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("RESCHEDULED")
     assert repo.appointments[ref]["starts_at"].strftime("%H:%M") == "09:30"
 
@@ -364,3 +367,81 @@ async def test_end_call_refused_while_change_unconfirmed():
     await tools["prepare_booking"].ainvoke(BOOK_ARGS())
     out = await tools["end_call"].ainvoke({})
     assert not state.end_call_requested and "unconfirmed" in out
+
+
+# --- spoken phone numbers and yes/no ---------------------------------------------------
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("9999999999", "9999999999"),
+    ("Triple 9. Triple 9. 9999.", "9999999999"),
+    ("triple 9 double 5 one two three four five", "9995512345"),
+    ("nine eight seven six five four three two one zero", "9876543210"),
+    ("nau aath saat chhe paanch chaar teen do ek shunya", "9876543210"),
+    ("नौ आठ सात छह पांच चार तीन दो एक शून्य", "9876543210"),
+    ("९८७६५४३२१०", "9876543210"),
+    # Hindi "nau" heard as "no" inside a number
+    ("no no 8 7 6 5 4 3 2 1", "9987654321"),
+    ("triple no 77 88 99 1", "9997788991"),
+    ("नो नो नो 1234567", "9991234567"),
+])
+def test_spoken_digits(raw, expected):
+    assert spoken_digits(raw) == expected
+
+
+def test_no_alone_is_not_a_digit():
+    assert spoken_digits("No, please cancel") == ""
+
+
+@pytest.mark.parametrize("raw,ok", [
+    ("98765 43210", "9876543210"), ("+91 98765 43210", "9876543210"), ("098765 43210", "9876543210"),
+    ("triple 9 triple 9 9999", "9999999999"), ("12345", None), ("1234567890", None),  # must start 6-9
+])
+def test_indian_numbers_need_ten_digits(raw, ok):
+    assert normalize_phone(raw, "IN") == ok
+
+
+@pytest.mark.parametrize("text,kind,answer", [
+    ("Yes, please book it.", "book", "yes"),
+    ("Haan ji, kar do", "book", "yes"),
+    ("हाँ जी", "book", "yes"),
+    ("No, please cancel the appointment.", "book", "no"),
+    ("No, no.", "book", "no"),
+    ("Nahi, rehne do", "book", "no"),
+    ("Wait, let me think", "book", "no"),
+    ("Yes, cancel it.", "cancel", "yes"),
+    ("No, don't cancel", "cancel", "no"),
+    ("no no 8 7 6 5 4 3 2 1", "book", None),  # a phone number, not a refusal
+    ("Hmm", "book", None),
+])
+def test_detect_answer(text, kind, answer):
+    assert detect_answer(text, kind) == answer
+
+
+async def test_patient_saying_no_discards_the_hold_and_blocks_confirm():
+    repo = FakeRepo()
+    state = make_state(repo)
+    model = ScriptedChatModel(replies=[
+        tool_call("prepare_booking", BOOK_ARGS(), "c1"),
+        AIMessage(content="Shall I book this?"),
+        tool_call("confirm_pending_action", {}, "c2"),
+        AIMessage(content="Okay."),
+    ], seen=[])
+    graph = build_graph(model, state)
+    history = [HumanMessage("Book Dr Sharma at 9:15")]
+    await graph.ainvoke({"messages": history})
+    assert state.pending is not None
+    history += [AIMessage("Shall I book this?"), HumanMessage("No, please cancel it.")]
+    out = await graph.ainvoke({"messages": history})
+    assert state.pending is None and repo.book_calls == 0
+    assert "Nothing is waiting" in [m for m in out["messages"] if isinstance(m, ToolMessage)][-1].content
+
+
+async def test_confirm_needs_a_clear_yes():
+    repo = FakeRepo()
+    state = make_state(repo)
+    tools = tools_by_name(state)
+    await tools["prepare_booking"].ainvoke(BOOK_ARGS())
+    state.turn, state.last_answer = 1, None  # e.g. "hmm" or another question
+    assert "not clearly said yes" in await tools["confirm_pending_action"].ainvoke({})
+    assert repo.book_calls == 0

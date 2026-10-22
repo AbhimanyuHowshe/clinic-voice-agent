@@ -28,6 +28,7 @@ class Clinic:
     voice_language: str
     phone: str | None
     address: str | None
+    country: str = "IN"
 
 
 @dataclass(frozen=True)
@@ -98,7 +99,7 @@ class SupabaseRepository:
     async def get_clinic(self, slug: str) -> Clinic | None:
         res = await _with_retry(
             lambda: self._db.table("clinics")
-            .select("id,slug,name,timezone,voice_language,phone,address")
+            .select("id,slug,name,timezone,voice_language,phone,address,country")
             .eq("slug", slug)
             .limit(1)
             .execute()

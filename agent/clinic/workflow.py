@@ -89,6 +89,8 @@ class SessionState:
     language: str = "English"
     # Set by end_call; the voice session hangs up after the goodbye has been spoken.
     end_call_requested: bool = False
+    # The patient's latest message read as an answer to a held action: "yes", "no" or None.
+    last_answer: str | None = None
     # Upcoming appointments found for a phone number (find_appointments), in the order read out.
     found_phone: str | None = None
     found: list[dict[str, Any]] = field(default_factory=list)
@@ -106,9 +108,76 @@ class SessionState:
 # ---------------------------------------------------------------------------
 
 
-def normalize_phone(raw: str) -> str | None:
-    digits = re.sub(r"[^\d+]", "", raw or "")
-    return digits if re.fullmatch(r"\+?\d{8,15}", digits) else None
+_DIGIT_WORDS = {
+    # English
+    "zero": "0", "oh": "0", "o": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+    # Hindi, romanized
+    "shunya": "0", "ek": "1", "do": "2", "teen": "3", "char": "4", "chaar": "4", "paanch": "5",
+    "panch": "5", "chhe": "6", "che": "6", "saat": "7", "aath": "8", "nau": "9",
+    # Hindi, Devanagari
+    "शून्य": "0", "एक": "1", "दो": "2", "तीन": "3", "चार": "4", "पांच": "5", "पाँच": "5",
+    "छह": "6", "छः": "6", "सात": "7", "आठ": "8", "नौ": "9",
+}
+# Hindi "nau" (9) is often transcribed as English "no"/"now" or Devanagari "नो". Inside a
+# phone number (next to other digits) these mean 9; on their own they are not digits.
+_NAU_SOUNDALIKES = {"no", "now", "know", "nao", "नो", "नाउ"}
+_REPEAT_WORDS = {"double": 2, "triple": 3, "डबल": 2, "ट्रिपल": 3}
+_DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
+
+
+def spoken_digits(raw: str) -> str:
+    """Digits from a spoken phone number: "triple 9 double 5 one" -> "999551".
+
+    Handles digits, English and Hindi digit words, Devanagari numerals, and "double"/"triple"
+    before a digit or a digit group (repeating only its first digit, as people say it).
+    """
+    text = (raw or "").translate(_DEVANAGARI_DIGITS).lower()
+    tokens = re.findall(r"\+?\d+|[^\s\d.,!?;:\-]+", text)
+    numeric = sum(1 for t in tokens if t[0] in "+0123456789" or t in _DIGIT_WORDS)
+    out: list[str] = []
+    repeat = 1
+    for tok in tokens:
+        if tok in _REPEAT_WORDS:
+            repeat = _REPEAT_WORDS[tok]
+            continue
+        if tok[0] in "+0123456789":
+            digits = re.sub(r"\D", "", tok)
+        elif tok in _NAU_SOUNDALIKES and (numeric or repeat > 1):
+            digits = "9"
+        else:
+            digits = _DIGIT_WORDS.get(tok, "")
+        if digits:
+            out.append(digits[0] * repeat + digits[1:])
+        repeat = 1
+    return "".join(out)
+
+
+def normalize_phone(raw: str, country: str | None = None) -> str | None:
+    """A dialable number, or None. Indian numbers must be exactly 10 digits (after +91/0)."""
+    plus = (raw or "").strip().startswith("+")
+    digits = spoken_digits(raw)
+    if country == "IN":
+        if len(digits) == 12 and digits.startswith("91"):
+            digits = digits[2:]
+        elif len(digits) == 11 and digits.startswith("0"):
+            digits = digits[1:]
+        return digits if re.fullmatch(r"[6-9]\d{9}", digits) else None
+    if not re.fullmatch(r"\d{8,15}", digits):
+        return None
+    return ("+" if plus else "") + digits
+
+
+def phone_problem(raw: str, country: str | None) -> str:
+    """What to tell the patient when a phone number is unusable."""
+    digits = spoken_digits(raw)
+    if country == "IN" and 0 < len(digits) < 10:
+        grouped = " ".join(digits[i:i + 5] for i in range(0, len(digits), 5))
+        return (
+            f"I only have {len(digits)} digits ({grouped}). Tell the patient the digits you have and "
+            f"ask for the remaining {10 - len(digits)}."
+        )
+    return "The mobile number is not valid. Ask the patient to say all 10 digits again, slowly."
 
 
 def parse_day(raw: str, today: date) -> date | None:
@@ -181,6 +250,38 @@ def detect_language(text: str) -> str | None:
         return "Hindi"
     if len(words) >= 3 and hindi_words == 0 and not devanagari:
         return "English"
+    return None
+
+
+_YES = {
+    "yes", "yeah", "yep", "yup", "ok", "okay", "sure", "confirm", "confirmed", "correct", "right",
+    "please", "go", "ahead", "book", "proceed", "haan", "han", "ha", "haa", "ji", "jee", "theek",
+    "thik", "bilkul", "kar", "karo", "kardo", "करो", "कर", "दो", "हाँ", "हां", "जी", "ठीक", "बिलकुल",
+}
+_NO = {
+    "no", "nope", "not", "don't", "dont", "wait", "stop", "later", "change", "different", "another",
+    "nahi", "nahin", "nai", "na", "mat", "ruko", "ruk", "नहीं", "नही", "मत", "रुको", "ना",
+}
+
+
+def detect_answer(text: str, pending_kind: str | None = None) -> str | None:
+    """'yes', 'no', or None for a reply to "shall I go ahead?".
+
+    "cancel" means no to a held booking or reschedule, but yes to a held cancellation.
+    """
+    words = re.findall(r"[^\s.,!?;:\-]+", (text or "").lower())
+    if len(spoken_digits(text)) >= 3:
+        # Mostly a number (e.g. "nau nau ..." heard as "no no ..."): not an answer.
+        return None
+    no = any(w in _NO for w in words)
+    if "cancel" in words or "रद्द" in words:
+        if pending_kind == "cancel":
+            return "no" if no else "yes"
+        no = True
+    if no:
+        return "no"
+    if any(w in _YES for w in words):
+        return "yes"
     return None
 
 
@@ -330,13 +431,16 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         name = (patient_name or "").strip()
         if not 1 <= len(name) <= 120:
             return "Ask the patient for their name."
-        phone = normalize_phone(patient_phone)
+        phone = normalize_phone(patient_phone, state.clinic.country)
         if phone is None:
-            return "The phone number looks wrong. Ask the patient to repeat their mobile number."
+            return phone_problem(patient_phone, state.clinic.country)
         slot = await slot_for(doc, date, time)
         if isinstance(slot, str):
             return slot
-        summary = f"{doc.name} on {speak_day(slot.date())} at {speak_time(slot)} for {name}, phone {phone}"
+        summary = (
+            f"{doc.name} on {speak_day(slot.date())} at {speak_time(slot)} for {name}, "
+            f"mobile {' '.join(phone)}"
+        )
         hold(PendingAction(
             kind="book", prepared_turn=state.turn, summary=summary,
             doctor=doc, starts_at=slot, patient_name=name, phone=phone,
@@ -365,9 +469,9 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             patient_phone: The mobile number used when booking, digits only.
             purpose: What the patient wants to do: "cancel", "reschedule", or "check".
         """
-        phone = normalize_phone(patient_phone)
+        phone = normalize_phone(patient_phone, state.clinic.country)
         if phone is None:
-            return "The phone number looks wrong. Ask the patient to repeat it."
+            return phone_problem(patient_phone, state.clinic.country)
         found = await repo.find_by_phone(state.clinic.id, phone)
         state.found_phone, state.found = phone, list(found)
         if not found:
@@ -430,6 +534,11 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             return "Nothing is waiting for confirmation."
         if state.turn <= p.prepared_turn:
             return "The patient has not confirmed yet. Read the details back and wait for their answer."
+        if state.last_answer != "yes":
+            return (
+                "The patient has not clearly said yes, so nothing was done. Ask them plainly: "
+                "should I go ahead, yes or no?"
+            )
         blocked = await changes_blocked()
         if blocked:
             state.pending = None
@@ -475,7 +584,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             callback_phone: Patient's number for a call back, if they gave one.
         """
         state.escalation_reason = (reason or "patient asked for staff")[:200]
-        phone = normalize_phone(callback_phone)
+        phone = normalize_phone(callback_phone, state.clinic.country)
         if phone:
             state.callback_phone = phone
         state.actions.append("escalate")
@@ -525,7 +634,7 @@ _PRIVATE_ARGS = {"patient_name", "patient_phone", "callback_phone"}
 
 
 def _redact(text: str) -> str:
-    text = re.sub(r"\+?\d[\d\s-]{7,}\d", "<phone>", text)
+    text = re.sub(r"(?<![\d-])\+?\d(?:[\d ]{6,})\d(?![\d-])", "<phone>", text)
     return re.sub(r" for [^,]+, phone", " for <name>, phone", text)
 
 
@@ -552,6 +661,17 @@ def build_graph(model: BaseChatModel, state: SessionState):
             # Pin the language every turn; it only changes when the patient clearly switches.
             state.language = detect_language(last_patient.text) or state.language
             messages.append(SystemMessage(LANGUAGE_RULE[state.language]))
+            p = state.pending
+            state.last_answer = detect_answer(last_patient.text, p.kind if p else None)
+            if p is not None and state.turn > p.prepared_turn and state.last_answer == "no":
+                # The patient declined: drop the held action in code, not by trusting the model.
+                logger.info("patient declined held %s; discarded", p.kind)
+                state.pending = None
+                messages.append(SystemMessage(
+                    f"The patient said no, so the held request ({p.summary}) was DISCARDED and nothing "
+                    "was changed. Tell them it has not been done, and ask what they would like instead. "
+                    "Do not prepare it again unless they ask for it again."
+                ))
         full = None
         async for chunk in bound.astream(messages):
             if isinstance(chunk.content, str) and chunk.content:
@@ -607,11 +727,13 @@ Booking an appointment (one question at a time):
 1. Find out which doctor or specialty, and the preferred day. Convert words like "tomorrow"
    to a YYYY-MM-DD date using today's date above.
 2. Call check_availability. Offer only the times it returns. Never invent a time.
-3. Ask for the patient's full name, then their 10-digit mobile number. Speech recognition
-   often splits a number across several messages (e.g. "98765" then "43210"): join the digits
-   from the patient's consecutive messages. If you have fewer than 10 digits, say the digits
-   you heard and ask for the rest. Never guess digits.
-4. Call prepare_booking, read the details back, and ask "Shall I book this?".
+3. Ask for the patient's full name, then their mobile number. Speech recognition often splits
+   a number across several messages (e.g. "98765" then "43210", or "triple 9" then "9999"):
+   pass ALL the number words and digits from those messages to prepare_booking exactly as
+   heard (e.g. "triple 9 9999 triple 9 999"); the tool converts them. If it says digits are
+   missing, tell the patient which digits you have and ask for the rest. Never guess digits.
+4. Call prepare_booking, read the details back including the mobile number digit by digit,
+   and ask "Shall I book this?".
 5. Only after the patient clearly says yes, call confirm_pending_action. Say the appointment
    is booked only if it returns BOOKED.
 
