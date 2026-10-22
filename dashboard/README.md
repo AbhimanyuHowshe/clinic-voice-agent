@@ -21,7 +21,7 @@ Level Security; admin-only changes are enforced by RLS policies, not just hidden
 
 ```
 npm install
-npm run dev        # http://localhost:3000 (Node 22+ recommended; supabase-js warns on Node 20)
+npm run dev        # http://localhost:8000 (Node 22+ recommended; supabase-js warns on Node 20)
 npm run build      # type-check + production build
 ```
 
