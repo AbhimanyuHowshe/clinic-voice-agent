@@ -117,6 +117,36 @@ async def test_booking_flow_books_only_after_yes():
 
         result = await session.run(user_input="Yes, please book it.")
         await result.expect.contains_message(role="assistant").judge(
-            judge_llm, intent="Says the appointment is booked and gives the reference number 100000."
+            judge_llm, intent="Says the appointment is booked. Does not ask for or mention a reference number."
         )
         assert len(repo.appointments) == 1
+
+
+async def test_cancel_by_phone_number_after_yes():
+    repo = FakeRepo()
+    day = next_open_day()
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo
+
+    start = datetime.combine(day, time(9, 15), tzinfo=ZoneInfo(CLINIC.timezone))
+    await repo.book(CLINIC.id, SHARMA.id, start, "Rahul Verma", "9876543210", "seed-key-1")
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, make_agent(repo))
+        result = await session.run(
+            user_input="I need to cancel my appointment. My phone number is 9876543210."
+        )
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Mentions the appointment with Dr. Sharma at 9:15 AM and asks the patient to confirm the "
+            "cancellation. Does not ask for a reference number and does not say it is already cancelled.",
+        )
+        assert repo.appointments["100000"]["status"] == "booked", "cancelled before the patient confirmed"
+
+        result = await session.run(user_input="Yes, cancel it.")
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm, intent="Says the appointment has been cancelled."
+        )
+        assert repo.appointments["100000"]["status"] == "cancelled"

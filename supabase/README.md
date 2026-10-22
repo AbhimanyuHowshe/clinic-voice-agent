@@ -6,6 +6,7 @@
 | `migrations/…02_functions.sql` | `agent_effective_state`, `available_slots`, `book_appointment` (idempotent), `find/cancel/reschedule_appointment` |
 | `migrations/…03_rls_and_grants.sql` | RLS: members read their clinic, admins change config; booking functions are service-role only |
 | `migrations/…04_doctor_name_unique.sql` | One doctor name per clinic |
+| `migrations/…05_phone_verification.sql` | Patients find, cancel and move appointments by phone number (no reference number) |
 | `seed.sql` | Two fictional demo clinics (Pune, Sydney) with doctors, hours and FAQs |
 
 Availability precedence (computed in the database, clinic time zone): manual OFF → holiday → temporary

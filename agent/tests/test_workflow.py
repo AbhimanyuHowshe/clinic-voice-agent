@@ -103,8 +103,26 @@ async def test_booking_needs_patient_turn_before_confirm():
 
     state.turn = 4  # patient said yes
     done = await tools["confirm_pending_action"].ainvoke({})
-    assert done.startswith("BOOKED") and "Reference number 100000" in done
+    assert done.startswith("BOOKED") and "same phone number" in done
     assert len(repo.appointments) == 1 and state.pending is None
+
+
+async def test_re_preparing_same_booking_keeps_the_hold():
+    repo = FakeRepo()
+    state = make_state(repo)
+    tools = tools_by_name(state)
+    state.turn = 1
+    await tools["prepare_booking"].ainvoke(BOOK_ARGS())
+    key = state.pending.idempotency_key
+    state.turn = 2  # patient said yes; the model re-prepares before confirming
+    await tools["prepare_booking"].ainvoke(BOOK_ARGS())
+    assert state.pending.prepared_turn == 1 and state.pending.idempotency_key == key
+    assert (await tools["confirm_pending_action"].ainvoke({})).startswith("BOOKED")
+
+    # A changed request is a new hold that needs its own yes.
+    await tools["prepare_booking"].ainvoke({**BOOK_ARGS(), "time": "09:30"})
+    assert state.pending.prepared_turn == 2
+    assert "not confirmed yet" in await tools["confirm_pending_action"].ainvoke({})
 
 
 async def test_confirm_without_pending_does_nothing():
@@ -172,20 +190,39 @@ async def book_one(repo) -> str:
     return "100000"
 
 
-async def test_cancel_requires_matching_phone_and_confirmation():
+async def test_cancel_finds_by_phone_and_needs_confirmation():
     repo = FakeRepo()
     ref = await book_one(repo)
     state = make_state(repo)
     tools = tools_by_name(state)
-    wrong = await tools["prepare_cancellation"].ainvoke({"reference": ref, "patient_phone": "9999999999"})
-    assert "No appointment matches" in wrong and state.pending is None
+    assert "find_appointments" in await tools["prepare_cancellation"].ainvoke({"appointment_number": 1})
 
-    held = await tools["prepare_cancellation"].ainvoke({"reference": ref, "patient_phone": "+919876543210"})
+    wrong = await tools["find_appointments"].ainvoke({"patient_phone": "9999999999", "purpose": "check"})
+    assert "No upcoming appointments" in wrong
+    assert "find_appointments" in await tools["prepare_cancellation"].ainvoke({"appointment_number": 1})
+
+    found = await tools["find_appointments"].ainvoke({"patient_phone": "+91 98765 43210", "purpose": "check"})
+    assert "One upcoming appointment" in found and "Dr. Anjali Sharma" in found
+    assert "from 1 to 1" in await tools["prepare_cancellation"].ainvoke({"appointment_number": 2})
+    assert state.pending is None
+    held = await tools["prepare_cancellation"].ainvoke({"appointment_number": 1})
     assert "NOT cancelled" in held
     assert repo.appointments[ref]["status"] == "booked"
     state.turn = 1
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("CANCELLED")
     assert repo.appointments[ref]["status"] == "cancelled"
+
+
+async def test_find_for_cancel_with_one_appointment_holds_it():
+    repo = FakeRepo()
+    await book_one(repo)
+    state = make_state(repo)
+    tools = tools_by_name(state)
+    state.turn = 1
+    out = await tools["find_appointments"].ainvoke({"patient_phone": "9876543210", "purpose": "cancel"})
+    assert "NOT cancelled" in out and state.pending.kind == "cancel" and state.pending.prepared_turn == 1
+    state.turn = 2
+    assert (await tools["confirm_pending_action"].ainvoke({})).startswith("CANCELLED")
 
 
 async def test_reschedule_to_free_slot():
@@ -194,9 +231,8 @@ async def test_reschedule_to_free_slot():
     state = make_state(repo)
     tools = tools_by_name(state)
     day = next_open_day().isoformat()
-    held = await tools["prepare_reschedule"].ainvoke(
-        {"reference": ref, "patient_phone": "9876543210", "new_date": day, "new_time": "09:30"}
-    )
+    await tools["find_appointments"].ainvoke({"patient_phone": "9876543210", "purpose": "reschedule"})
+    held = await tools["prepare_reschedule"].ainvoke({"appointment_number": 1, "new_date": day, "new_time": "09:30"})
     assert "NOT changed" in held
     state.turn = 1
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("RESCHEDULED")

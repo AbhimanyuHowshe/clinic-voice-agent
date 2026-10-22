@@ -4,13 +4,11 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Current Status
 
-- **Current phase:** Phases 2–6 built (2026-10-22); deployment (Phase 8) waits on user actions.
+- **Current phase:** Phases 2–6 built and tested (2026-10-22); website voice agent only, the phone line comes later.
 - **Next tasks:**
-  1. The user fixes `agent/.env` and `dashboard/.env.local` with `scripts/set_env.py` (both currently hold invalid values; see Pending User Actions).
-  2. Run `RUN_DB_TESTS=1 uv run pytest tests/test_db.py` (database functions: concurrency, idempotency, schedules).
-  3. Create a staff login (`scripts/create_staff.py`), then click through the dashboard locally.
-  4. Voice test through the web app (`npm run dev` + `lk agent dev`): book, reschedule, cancel, emergency OFF mid-call.
-  5. Deploy: `lk cloud auth` + `lk agent create`, then Vercel.
+  1. Create a staff login (`scripts/create_staff.py`), then click through the dashboard locally.
+  2. Voice test through the web app (`npm run dev` + `lk agent dev`): book, reschedule, cancel, emergency OFF mid-call.
+  3. Deploy: `lk cloud auth` + `lk agent create`, then Vercel.
 
 ## Completed
 
@@ -112,16 +110,27 @@ Record only verified results here. Do not mark an item done until it has actuall
 - `scripts/create_staff.py` creates dashboard logins (sign-up is off).
 - Not tested yet: dashboard pages against real data (no staff login yet), voice through the web app, `test_db.py`, deployment.
 
+### 2026-10-22: Phone-number lookup replaces reference numbers; keys verified
+- **User decision:** patients no longer need a reference number. To cancel or move an appointment they give the phone number used to book; the agent lists that number's upcoming appointments. **Scope for now: website voice agent only; the phone line (Phase 9) comes later.**
+  - Migration `…05_phone_verification.sql` applied: `find_appointments_by_phone`, and `cancel_appointment` / `reschedule_appointment` now take an appointment id **and** require the same phone number. `find_appointment` (reference-based) was dropped. The `reference` column stays for staff in the dashboard. The agent no longer reads it out.
+  - Trade-off: anyone who knows a patient's phone number can cancel or move their appointment. Acceptable for the demo. When phone calls are added, caller ID or an SMS code can harden this.
+- **Two confirmation problems found by live tests, both fixed in code:**
+  - Cancelling asked for confirmation twice. When the purpose is "cancel" and exactly one appointment matches, `find_appointments` now holds the cancellation itself, so a single "yes" confirms it.
+  - On "yes", the model re-prepared the same booking, which reset the hold and blocked the confirm. Re-preparing an identical action now keeps the original hold. A changed request is still a new hold that needs its own "yes".
+- **Keys:** added `scripts/check_keys.py`. It makes a real request to each service and prints only OK/FAIL, never the values. All 5 checks pass: agent Supabase, LiveKit and Sarvam; dashboard Supabase publishable key and LiveKit.
+- **Tests:**
+  - Offline: **39 passed**.
+  - Database `RUN_DB_TESTS=1 uv run pytest tests/test_db.py`: **9 passed** against the real project. Covered: slots only from consulting hours; idempotent booking; **6 simultaneous bookings for one slot → exactly 1 succeeds**; invented/off-grid times and bad phones rejected; phone-verified cancel and reschedule; availability precedence including an overnight window, a pause, a holiday and manual OFF; booking refused when OFF; settings changes audited; appointment audit rows hold no patient details.
+  - Live: **9 passed, twice in a row**. This adds a cancel-by-phone conversation (nothing cancelled before "yes"; cancelled after).
+
 ## In Progress
 
-- Waiting on the user's credential fixes to run `tests/test_db.py` and the dashboard against real data.
+- Waiting on a staff login (needs a password the user chooses) to test the dashboard against real data.
 
 ## Pending User Actions
 
-- **Fix `agent/.env` and `dashboard/.env.local`** with `cd agent && uv run python scripts/set_env.py`, in your own terminal, pasting one value at a time.
-  - Supabase rejects the current `SUPABASE_SERVICE_ROLE_KEY` ("Invalid API key").
-  - `dashboard/.env.local` has a broken `LIVEKIT_URL`.
-  - `python-dotenv` can't parse line 12 of `agent/.env`. The script rewrites the known lines, but check the file for leftover junk.
+- **Create a staff login:** `cd agent && uv run python scripts/create_staff.py` (hidden password prompt).
+- Keys: all pass `scripts/check_keys.py` (2026-10-22). Rerun it after any change.
 - **Rotate the LiveKit API key** (exposed in a Claude session on 2026-10-21).
 - **Run `lk cloud auth`** (opens a browser) for `lk agent dev/create/deploy`.
 - **Run `vercel login`**, or import the repo in the Vercel dashboard (Root Directory `dashboard`).
@@ -135,7 +144,6 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Not Yet Done
 
-- Database functions have not been run against the real project (`test_db.py` is blocked on the key).
 - Dashboard not clicked through with a real staff login. No automated UI or RLS tests yet: the RLS policies are written but untested from an `authenticated` session.
 - Voice: no test through the web app yet. Interruptions, silence and timeouts are untested. Hindi and Hinglish are only tested in text.
 - Deployment: the agent image is not built; nothing is on LiveKit Cloud or Vercel yet.

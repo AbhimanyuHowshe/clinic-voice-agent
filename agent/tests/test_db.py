@@ -98,20 +98,22 @@ async def test_rejects_invented_or_invalid_slots(env):
 async def test_cancel_and_reschedule_need_matching_phone(env):
     repo, _, clinic_id, doctor_id = env
     booked = await repo.book(clinic_id, doctor_id, tomorrow_at(9, 0), "Rahul", PHONE, "key-ffffffff")
-    ref = booked["appointment"]["reference"]
+    appt_id = booked["appointment"]["id"]
 
-    assert (await repo.cancel(clinic_id, ref, "9999999999"))["error"] == "not_found"
-    found = await repo.find(clinic_id, ref, "98765 43210")
-    assert found["ok"] and found["appointment"]["doctor_name"] == "Dr. Test"
+    assert await repo.find_by_phone(clinic_id, "9999999999") == []
+    assert (await repo.cancel(clinic_id, appt_id, "9999999999"))["error"] == "not_found"
+    found = await repo.find_by_phone(clinic_id, "98765 43210")
+    assert [a["id"] for a in found] == [appt_id] and found[0]["doctor_name"] == "Dr. Test"
 
-    moved = await repo.reschedule(clinic_id, ref, PHONE, tomorrow_at(9, 45))
+    moved = await repo.reschedule(clinic_id, appt_id, PHONE, tomorrow_at(9, 45))
     assert moved["ok"]
     assert datetime.fromisoformat(moved["appointment"]["starts_at"]) == tomorrow_at(9, 45)
     assert tomorrow_at(9, 0) in await repo.available_slots(doctor_id, tomorrow_at(9, 0).date())
 
-    cancelled = await repo.cancel(clinic_id, ref, PHONE)
+    cancelled = await repo.cancel(clinic_id, appt_id, PHONE)
     assert cancelled["ok"] and cancelled["appointment"]["status"] == "cancelled"
-    assert (await repo.cancel(clinic_id, ref, PHONE))["replayed"]
+    assert (await repo.cancel(clinic_id, appt_id, PHONE))["replayed"]
+    assert await repo.find_by_phone(clinic_id, PHONE) == []  # only upcoming booked ones are listed
 
 
 async def state_at(db, clinic_id, at: datetime) -> str:

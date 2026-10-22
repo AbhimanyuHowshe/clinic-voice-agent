@@ -47,7 +47,7 @@ ERROR_TEXT = {
     "slot_taken": "That time was just taken by someone else.",
     "slot_unavailable": "That time is no longer available.",
     "agent_unavailable": "The online receptionist has just been switched off by the clinic, so no changes can be made now.",
-    "not_found": "No appointment matches that reference number and phone number.",
+    "not_found": "That appointment was not found for this phone number.",
     "not_cancellable": "That appointment can no longer be cancelled; it is already past or not active.",
     "not_reschedulable": "That appointment can no longer be moved; it is already past or not active.",
     "invalid_phone": "The phone number is not valid.",
@@ -66,7 +66,7 @@ class PendingAction:
     starts_at: datetime | None = None
     patient_name: str = ""
     phone: str = ""
-    reference: str = ""
+    appointment_id: str = ""
 
 
 @dataclass
@@ -85,6 +85,9 @@ class SessionState:
     actions: list[str] = field(default_factory=list)
     escalation_reason: str | None = None
     callback_phone: str | None = None
+    # Upcoming appointments found for a phone number (find_appointments), in the order read out.
+    found_phone: str | None = None
+    found: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def tz(self) -> ZoneInfo:
@@ -212,6 +215,16 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             f"Free times that day: {summarize_slots(slots)}. Offer only these."
         )
 
+    def hold(action: PendingAction) -> None:
+        """Store a pending action. Re-preparing the identical action (the model often does this
+        when the patient says yes) keeps the original hold, so that yes still counts."""
+        p = state.pending
+        same = p is not None and (p.kind, p.doctor, p.starts_at, p.patient_name, p.phone, p.appointment_id) == (
+            action.kind, action.doctor, action.starts_at, action.patient_name, action.phone, action.appointment_id
+        )
+        if not same:
+            state.pending = action
+
     async def changes_blocked() -> str | None:
         if not state.changes_allowed:
             return ERROR_TEXT["agent_unavailable"]
@@ -275,69 +288,90 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         if isinstance(slot, str):
             return slot
         summary = f"{doc.name} on {speak_day(slot.date())} at {speak_time(slot)} for {name}, phone {phone}"
-        state.pending = PendingAction(
+        hold(PendingAction(
             kind="book", prepared_turn=state.turn, summary=summary,
             doctor=doc, starts_at=slot, patient_name=name, phone=phone,
-        )
+        ))
         return (
             f"Held, NOT booked yet: {summary}. Read these details back to the patient and ask them to "
             "confirm. Call confirm_pending_action only after they say yes."
         )
 
-    @tool
-    async def prepare_cancellation(reference: str, patient_phone: str) -> str:
-        """Find the patient's appointment and hold a cancellation for their confirmation.
-
-        Args:
-            reference: The 6-digit booking reference number.
-            patient_phone: The phone number used when booking.
-        """
-        res = await repo.find(state.clinic.id, reference, patient_phone)
-        if not res.get("ok"):
-            return ERROR_TEXT.get(res.get("error", ""), "The appointment could not be found.")
-        appt = res["appointment"]
-        if appt["status"] != "booked":
-            return f"That appointment is already {appt['status']}."
+    def describe(appt: dict[str, Any]) -> str:
         starts = datetime.fromisoformat(appt["starts_at"]).astimezone(state.tz)
-        summary = f"cancel the appointment with {appt['doctor_name']} on {speak_day(starts.date())} at {speak_time(starts)}"
-        state.pending = PendingAction(
-            kind="cancel", prepared_turn=state.turn, summary=summary,
-            reference=appt["reference"], phone=patient_phone,
-        )
-        return f"Found it. Held, NOT cancelled yet: {summary}. Ask the patient to confirm."
+        return f"{appt['doctor_name']} on {speak_day(starts.date())} at {speak_time(starts)}"
+
+    def chosen(appointment_number: int) -> dict[str, Any] | str:
+        if not state.found:
+            return "Call find_appointments with the patient's phone number first."
+        if not 1 <= appointment_number <= len(state.found):
+            return f"Choose an appointment number from 1 to {len(state.found)}."
+        return state.found[appointment_number - 1]
 
     @tool
-    async def prepare_reschedule(reference: str, patient_phone: str, new_date: str, new_time: str) -> str:
-        """Find the patient's appointment and hold a move to a new free time with the same doctor.
+    async def find_appointments(patient_phone: str, purpose: Literal["cancel", "reschedule", "check"]) -> str:
+        """List the patient's upcoming appointments, found by the phone number used to book.
 
         Args:
-            reference: The 6-digit booking reference number.
-            patient_phone: The phone number used when booking.
+            patient_phone: The mobile number used when booking, digits only.
+            purpose: What the patient wants to do: "cancel", "reschedule", or "check".
+        """
+        phone = normalize_phone(patient_phone)
+        if phone is None:
+            return "The phone number looks wrong. Ask the patient to repeat it."
+        found = await repo.find_by_phone(state.clinic.id, phone)
+        state.found_phone, state.found = phone, list(found)
+        if not found:
+            return "No upcoming appointments for that phone number. Ask the patient to check the number used to book."
+        listed = "; ".join(f"{i}. {describe(a)}" for i, a in enumerate(found, 1))
+        if len(found) == 1 and purpose == "cancel":
+            # Hold the cancellation now, so one "yes" confirms both the appointment and the change.
+            return await prepare_cancellation.ainvoke({"appointment_number": 1})
+        if len(found) == 1:
+            return f"One upcoming appointment: {listed}."
+        return f"Upcoming appointments: {listed}. Ask the patient which one they mean."
+
+    @tool
+    async def prepare_cancellation(appointment_number: int = 1) -> str:
+        """Hold a cancellation of one appointment from find_appointments, for the patient's confirmation.
+
+        Args:
+            appointment_number: The number of the appointment in the find_appointments list.
+        """
+        appt = chosen(appointment_number)
+        if isinstance(appt, str):
+            return appt
+        summary = f"cancel the appointment with {describe(appt)}"
+        hold(PendingAction(
+            kind="cancel", prepared_turn=state.turn, summary=summary,
+            appointment_id=appt["id"], phone=state.found_phone,
+        ))
+        return f"Held, NOT cancelled yet: {summary}. Ask the patient to confirm."
+
+    @tool
+    async def prepare_reschedule(appointment_number: int, new_date: str, new_time: str) -> str:
+        """Hold a move of one appointment from find_appointments to a new free time with the same doctor.
+
+        Args:
+            appointment_number: The number of the appointment in the find_appointments list.
             new_date: New clinic-local date as YYYY-MM-DD.
             new_time: New clinic-local start time as HH:MM (24-hour).
         """
-        res = await repo.find(state.clinic.id, reference, patient_phone)
-        if not res.get("ok"):
-            return ERROR_TEXT.get(res.get("error", ""), "The appointment could not be found.")
-        appt = res["appointment"]
-        if appt["status"] != "booked":
-            return f"That appointment is already {appt['status']}."
+        appt = chosen(appointment_number)
+        if isinstance(appt, str):
+            return appt
         doc = next((d for d in state.doctors if d.id == appt["doctor_id"]), None)
         if doc is None:
             return "That doctor is no longer taking appointments. Offer to connect the patient to staff."
         slot = await slot_for(doc, new_date, new_time)
         if isinstance(slot, str):
             return slot
-        old = datetime.fromisoformat(appt["starts_at"]).astimezone(state.tz)
-        summary = (
-            f"move the appointment with {doc.name} from {speak_day(old.date())} at {speak_time(old)} "
-            f"to {speak_day(slot.date())} at {speak_time(slot)}"
-        )
-        state.pending = PendingAction(
+        summary = f"move the appointment with {describe(appt)} to {speak_day(slot.date())} at {speak_time(slot)}"
+        hold(PendingAction(
             kind="reschedule", prepared_turn=state.turn, summary=summary,
-            doctor=doc, starts_at=slot, reference=appt["reference"], phone=patient_phone,
-        )
-        return f"Found it. Held, NOT changed yet: {summary}. Ask the patient to confirm."
+            doctor=doc, starts_at=slot, appointment_id=appt["id"], phone=state.found_phone,
+        ))
+        return f"Held, NOT changed yet: {summary}. Ask the patient to confirm."
 
     @tool
     async def confirm_pending_action() -> str:
@@ -357,9 +391,9 @@ def build_tools(state: SessionState) -> list[BaseTool]:
                     state.clinic.id, p.doctor.id, p.starts_at, p.patient_name, p.phone, p.idempotency_key
                 )
             elif p.kind == "cancel":
-                res = await repo.cancel(state.clinic.id, p.reference, p.phone)
+                res = await repo.cancel(state.clinic.id, p.appointment_id, p.phone)
             else:
-                res = await repo.reschedule(state.clinic.id, p.reference, p.phone, p.starts_at)
+                res = await repo.reschedule(state.clinic.id, p.appointment_id, p.phone, p.starts_at)
         except Exception:
             # Keep the pending action (and its idempotency key) so a retry cannot double-book.
             logger.exception("backend call failed for %s", p.kind)
@@ -372,16 +406,16 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             err = res.get("error", "")
             return ERROR_TEXT.get(err, "The clinic system refused the change.") + " Nothing was changed."
         state.pending = None
+        state.found = []  # appointment list is stale after a change
         state.actions.append(p.kind)
-        appt = res["appointment"]
         if p.kind == "book":
             return (
-                f"BOOKED: {p.summary}. Reference number {appt['reference']}. Tell the patient the reference "
-                "number digit by digit and that they will need it with their phone number to make changes."
+                f"BOOKED: {p.summary}. Tell the patient it is booked, and that to change or cancel it they "
+                "just need the same phone number."
             )
         if p.kind == "cancel":
             return f"CANCELLED: {p.summary.removeprefix('cancel ')}."
-        return f"RESCHEDULED: {p.summary.removeprefix('move ')}. The reference number is unchanged."
+        return f"RESCHEDULED: {p.summary.removeprefix('move ')}."
 
     @tool
     async def escalate_to_staff(reason: str, callback_phone: str = "") -> str:
@@ -403,6 +437,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
     return [
         check_availability,
         prepare_booking,
+        find_appointments,
         prepare_cancellation,
         prepare_reschedule,
         confirm_pending_action,
@@ -491,11 +526,13 @@ Booking an appointment (one question at a time):
 3. Ask for the patient's full name and mobile number.
 4. Call prepare_booking, read the details back, and ask "Shall I book this?".
 5. Only after the patient clearly says yes, call confirm_pending_action. Say the appointment
-   is booked only if it returns BOOKED, and then say the reference number digit by digit.
+   is booked only if it returns BOOKED.
 
-Cancelling or moving an appointment: ask for the 6-digit reference number and the phone
-number used to book. Call prepare_cancellation or prepare_reschedule (check availability
-first for a new time), read the change back, and call confirm_pending_action only after a yes.
+Cancelling or moving an appointment: ask for the mobile number used to book and call
+find_appointments with the purpose. If there is more than one, ask which one. Ask for confirmation only once:
+the read-back of the change also confirms which appointment it is. For a new time, call
+check_availability first. Then call prepare_cancellation or prepare_reschedule, read the change
+back, and call confirm_pending_action only after a yes. Never ask for a reference number.
 
 If a tool reports an error or that something is not confirmed, tell the patient honestly.
 Never say anything is booked, cancelled, changed, noted, or saved unless a tool confirmed it.

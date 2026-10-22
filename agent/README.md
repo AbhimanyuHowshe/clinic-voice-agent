@@ -14,7 +14,8 @@ patient speech → Sarvam STT (saaras:v4) → LangGraph workflow → Sarvam TTS 
   (no transcript), and rechecks availability every 60 s during the call.
 - `clinic/workflow.py` — the LangGraph graph, tools, and prompt. Bookings, cancellations and reschedules
   are two-step: a `prepare_*` tool validates against real data, and `confirm_pending_action` only runs in a
-  later patient turn (after the read-back). Tool results are never spoken.
+  later patient turn (after the read-back). Patients find their appointments by the phone number they
+  booked with (no reference number). Tool results are never spoken.
 - `clinic/repository.py` — Supabase access (service-role key, server-only). All writes go through the
   Postgres functions in `../supabase/migrations`.
 
@@ -26,6 +27,7 @@ Requires Python 3.11–3.13 and [uv](https://docs.astral.sh/uv/).
 cd agent
 uv sync
 uv run python scripts/set_env.py      # fills .env (hidden prompts); run it in your own terminal
+uv run python scripts/check_keys.py   # tests each key against its service; prints only OK/FAIL
 uv run python scripts/create_staff.py # creates a dashboard login linked to a clinic
 ```
 

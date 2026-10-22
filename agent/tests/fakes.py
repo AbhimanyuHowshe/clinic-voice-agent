@@ -76,7 +76,7 @@ class FakeRepo:
     def _json(self, ref: str) -> dict[str, Any]:
         a = self.appointments[ref]
         name = SHARMA.name if a["doctor_id"] == "d1" else MEHTA.name
-        return {**a, "reference": ref, "doctor_name": name, "starts_at": a["starts_at"].isoformat()}
+        return {**a, "id": ref, "reference": ref, "doctor_name": name, "starts_at": a["starts_at"].isoformat()}
 
     def _maybe_fail(self) -> None:
         if self.fail_next_writes:
@@ -101,19 +101,25 @@ class FakeRepo:
         self.by_key[key] = ref
         return {"ok": True, "replayed": False, "appointment": self._json(ref)}
 
-    def _verify(self, reference, phone):
-        a = self.appointments.get(reference)
-        if a is None or a["phone"][-10:] != "".join(ch for ch in phone if ch.isdigit())[-10:]:
+    @staticmethod
+    def _key(phone):
+        return "".join(ch for ch in phone if ch.isdigit())[-10:]
+
+    def _verify(self, appointment_id, phone):
+        a = self.appointments.get(appointment_id)
+        if a is None or self._key(a["phone"]) != self._key(phone):
             return None
         return a
 
-    async def find(self, clinic_id, reference, phone):
-        if self._verify(reference, phone) is None:
-            return {"ok": False, "error": "not_found"}
-        return {"ok": True, "appointment": self._json(reference)}
+    async def find_by_phone(self, clinic_id, phone):
+        return [
+            self._json(ref) for ref, a in sorted(self.appointments.items(), key=lambda kv: kv[1]["starts_at"])
+            if a["status"] == "booked" and self._key(a["phone"]) == self._key(phone)
+        ]
 
-    async def cancel(self, clinic_id, reference, phone):
+    async def cancel(self, clinic_id, appointment_id, phone):
         self._maybe_fail()
+        reference = appointment_id
         a = self._verify(reference, phone)
         if a is None:
             return {"ok": False, "error": "not_found"}
@@ -122,8 +128,9 @@ class FakeRepo:
         a["status"] = "cancelled"
         return {"ok": True, "appointment": self._json(reference)}
 
-    async def reschedule(self, clinic_id, reference, phone, new_starts_at):
+    async def reschedule(self, clinic_id, appointment_id, phone, new_starts_at):
         self._maybe_fail()
+        reference = appointment_id
         a = self._verify(reference, phone)
         if a is None:
             return {"ok": False, "error": "not_found"}

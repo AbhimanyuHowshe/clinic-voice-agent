@@ -123,7 +123,7 @@ END
 - [x] Configure Row Level Security.
 - [x] Implement secure backend functions.
 - [x] Add validation and error handling.
-- [ ] Add database tests. (Written in `agent/tests/test_db.py`; not run yet — Supabase key invalid.)
+- [x] Add database tests. (`tests/test_db.py`, 9 passed 2026-10-22.)
 
 **Deliverable:** persistent clinic data and secure backend operations.
 
@@ -133,12 +133,12 @@ END
 - [x] Implement real slot lookup.
 - [x] Implement conflict-safe booking.
 - [x] Require patient confirmation.
-- [x] Add booking confirmation references.
+- [x] Add booking confirmation references. (2026-10-22: kept for staff only; patients identify appointments by phone number.)
 - [x] Implement rescheduling.
 - [x] Implement cancellation.
 - [x] Add appropriate patient verification.
 - [x] Add idempotency or equivalent retry protection.
-- [ ] Test simultaneous booking attempts. (Written in `test_db.py`; not run yet.)
+- [x] Test simultaneous booking attempts. (6 concurrent → 1 booked.)
 
 **Deliverable:** end-to-end appointment booking through the voice agent.
 
@@ -172,7 +172,7 @@ END
 - [x] Define behavior for calls already in progress.
 - [x] Implement configurable fallback handling.
 - [x] Audit changes made by staff.
-- [ ] Test time-zone and schedule boundaries. (Written in `test_db.py`; not run yet.)
+- [x] Test time-zone and schedule boundaries. (Overnight window, pause, holiday, manual OFF.)
 
 **Deliverable:** reliable, server-enforced agent availability.
 

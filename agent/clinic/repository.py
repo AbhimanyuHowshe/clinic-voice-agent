@@ -55,10 +55,10 @@ class Repository(Protocol):
     async def book(
         self, clinic_id: str, doctor_id: str, starts_at: datetime, name: str, phone: str, key: str
     ) -> dict[str, Any]: ...
-    async def find(self, clinic_id: str, reference: str, phone: str) -> dict[str, Any]: ...
-    async def cancel(self, clinic_id: str, reference: str, phone: str) -> dict[str, Any]: ...
+    async def find_by_phone(self, clinic_id: str, phone: str) -> list[dict[str, Any]]: ...
+    async def cancel(self, clinic_id: str, appointment_id: str, phone: str) -> dict[str, Any]: ...
     async def reschedule(
-        self, clinic_id: str, reference: str, phone: str, new_starts_at: datetime
+        self, clinic_id: str, appointment_id: str, phone: str, new_starts_at: datetime
     ) -> dict[str, Any]: ...
     async def start_call(self, clinic_id: str, room_name: str) -> str | None: ...
     async def finish_call(self, call_id: str, **fields: Any) -> None: ...
@@ -146,22 +146,22 @@ class SupabaseRepository:
             },
         )
 
-    async def find(self, clinic_id, reference, phone):
+    async def find_by_phone(self, clinic_id, phone):
+        """Upcoming booked appointments for this phone number, earliest first."""
+        return await self._rpc("find_appointments_by_phone", {"p_clinic_id": clinic_id, "p_phone": phone})
+
+    async def cancel(self, clinic_id, appointment_id, phone):
         return await self._rpc(
-            "find_appointment", {"p_clinic_id": clinic_id, "p_reference": reference, "p_phone": phone}
+            "cancel_appointment",
+            {"p_clinic_id": clinic_id, "p_appointment_id": appointment_id, "p_phone": phone},
         )
 
-    async def cancel(self, clinic_id, reference, phone):
-        return await self._rpc(
-            "cancel_appointment", {"p_clinic_id": clinic_id, "p_reference": reference, "p_phone": phone}
-        )
-
-    async def reschedule(self, clinic_id, reference, phone, new_starts_at):
+    async def reschedule(self, clinic_id, appointment_id, phone, new_starts_at):
         return await self._rpc(
             "reschedule_appointment",
             {
                 "p_clinic_id": clinic_id,
-                "p_reference": reference,
+                "p_appointment_id": appointment_id,
                 "p_phone": phone,
                 "p_new_starts_at": new_starts_at.isoformat(),
             },
