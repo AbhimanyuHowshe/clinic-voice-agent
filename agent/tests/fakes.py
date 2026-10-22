@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -70,8 +70,9 @@ class FakeRepo:
         }
 
     async def available_slots(self, doctor_id, day):
+        # Like the real database: instants come back in UTC, not clinic time.
         taken = self._taken(doctor_id)
-        return [s for s in self._all_slots(doctor_id, day) if s not in taken]
+        return [s.astimezone(timezone.utc) for s in self._all_slots(doctor_id, day) if s not in taken]
 
     def _json(self, ref: str) -> dict[str, Any]:
         a = self.appointments[ref]

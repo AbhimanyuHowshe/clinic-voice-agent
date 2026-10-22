@@ -59,10 +59,26 @@ def test_detect_language(text, lang):
     assert detect_language(text) == lang
 
 
-def test_parse_time():
-    assert parse_time("09:15").minute == 15
-    assert parse_time("25:00") is None
-    assert parse_time("nine") is None
+@pytest.mark.parametrize("raw,expected", [
+    ("09:15", "09:15"), ("9.15", "09:15"), ("09:15:00", "09:15"), ("17:30", "17:30"),
+    ("10 AM", "10:00"), ("10am", "10:00"), ("5:30 PM", "17:30"), ("12 pm", "12:00"), ("12:15 a.m.", "00:15"),
+])
+def test_parse_time_accepts_common_forms(raw, expected):
+    assert parse_time(raw).strftime("%H:%M") == expected
+
+
+@pytest.mark.parametrize("raw", ["25:00", "nine", "10", "13 PM", ""])
+def test_parse_time_rejects(raw):
+    assert parse_time(raw) is None
+
+
+async def test_slots_are_spoken_in_clinic_time_not_utc():
+    state = make_state()
+    tools = tools_by_name(state)
+    out = await tools["check_availability"].ainvoke({"doctor": "Sharma", "date": next_open_day().isoformat()})
+    assert "9:00 AM" in out and "3:30 AM" not in out  # 09:00 IST is 03:30 UTC
+    held = await tools["prepare_booking"].ainvoke({**BOOK_ARGS(), "time": "9:15 AM"})
+    assert "at 9:15 AM" in held
 
 
 # --- availability ---------------------------------------------------------------------

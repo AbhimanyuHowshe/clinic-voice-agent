@@ -26,7 +26,7 @@ from typing import Annotated, Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
@@ -118,11 +118,19 @@ def parse_day(raw: str, today: date) -> date | None:
 
 
 def parse_time(raw: str) -> time | None:
-    m = re.fullmatch(r"\s*(\d{1,2})[:.](\d{2})\s*", raw or "")
-    if not m:
+    """Accepts "09:30", "9.30", "09:30:00", "10 AM", "5:30 pm"."""
+    m = re.fullmatch(
+        r"\s*(\d{1,2})(?:[:.](\d{2}))?(?::\d{2})?\s*([ap])?\.?\s*m?\.?\s*", (raw or "").lower()
+    )
+    if not m or (m.group(2) is None and m.group(3) is None):
         return None
+    hour, minute, ampm = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+    if ampm:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if ampm == "p" else 0)
     try:
-        return time(int(m.group(1)), int(m.group(2)))
+        return time(hour, minute)
     except ValueError:
         return None
 
@@ -204,7 +212,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         if at is None:
             return "The time must be HH:MM in 24-hour clinic time."
         wanted = datetime.combine(day, at, tzinfo=state.tz)
-        slots = await repo.available_slots(doctor.id, day)
+        slots = await local_slots(doctor, day)
         for s in slots:
             if s == wanted:
                 return s
@@ -224,6 +232,10 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         )
         if not same:
             state.pending = action
+
+    async def local_slots(doctor: Doctor, day: date) -> list[datetime]:
+        # The database returns UTC instants; patients hear clinic-local times.
+        return [s.astimezone(state.tz) for s in await repo.available_slots(doctor.id, day)]
 
     async def changes_blocked() -> str | None:
         if not state.changes_allowed:
@@ -249,14 +261,14 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         day = parse_day(date, today)
         if day is None:
             return f"The date must be YYYY-MM-DD, from {today.isoformat()} up to {BOOKING_HORIZON_DAYS} days ahead."
-        slots = await repo.available_slots(doc.id, day)
+        slots = await local_slots(doc, day)
         if slots:
             return f"{doc.name} is free on {speak_day(day)} ({day.isoformat()}) at: {summarize_slots(slots)}."
         for offset in range(1, NEXT_DAY_SEARCH + 1):
             nxt = day + timedelta(days=offset)
             if nxt > today + timedelta(days=BOOKING_HORIZON_DAYS):
                 break
-            later = await repo.available_slots(doc.id, nxt)
+            later = await local_slots(doc, nxt)
             if later:
                 return (
                     f"{doc.name} has no free slots on {speak_day(day)}. The next free day is "
@@ -450,6 +462,15 @@ def build_tools(state: SessionState) -> list[BaseTool]:
 # ---------------------------------------------------------------------------
 
 
+# Debug logging keeps patient names and phone numbers out of the logs.
+_PRIVATE_ARGS = {"patient_name", "patient_phone", "callback_phone"}
+
+
+def _redact(text: str) -> str:
+    text = re.sub(r"\+?\d[\d\s-]{7,}\d", "<phone>", text)
+    return re.sub(r" for [^,]+, phone", " for <name>, phone", text)
+
+
 class GraphState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
 
@@ -471,6 +492,8 @@ def build_graph(model: BaseChatModel, state: SessionState):
             # The model drifts towards the language of its own greeting; pin it each turn.
             language = detect_language(last_patient.text)
             messages.append(SystemMessage(f"Reply language for this turn: {language}."))
+        if messages and isinstance(messages[-1], ToolMessage):
+            logger.info("tool %s -> %s", messages[-1].name, _redact(messages[-1].text)[:160])
         full = None
         async for chunk in bound.astream(messages):
             if isinstance(chunk.content, str) and chunk.content:
@@ -478,6 +501,9 @@ def build_graph(model: BaseChatModel, state: SessionState):
             full = chunk if full is None else full + chunk
         if full is None:
             return {"messages": [AIMessage(content="")]}
+        for call in full.tool_calls:
+            args = {k: v for k, v in call["args"].items() if k not in _PRIVATE_ARGS}
+            logger.info("tool call %s %s", call["name"], args)
         return {"messages": [AIMessage(content=full.content, tool_calls=full.tool_calls, id=full.id)]}
 
     graph = StateGraph(GraphState)
