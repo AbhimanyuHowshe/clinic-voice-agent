@@ -6,6 +6,7 @@ SARVAM_API_KEY is set in agent/.env. Replies are graded by the same LLM via judg
 Run: RUN_LIVE_TESTS=1 uv run pytest tests/test_receptionist.py -v
 """
 
+import asyncio
 import os
 
 import pytest
@@ -18,6 +19,21 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_LIVE_TESTS") != "1" or not os.environ.get("SARVAM_API_KEY"),
     reason="live Sarvam test; set RUN_LIVE_TESTS=1 and SARVAM_API_KEY",
 )
+
+
+async def start_after_greeting(session: AgentSession) -> None:
+    """Start the receptionist and wait for its on_enter greeting to finish.
+
+    on_enter runs as a separate task; without this wait the greeting can land inside the
+    next run() and be graded instead of the reply to the patient.
+    """
+    await session.start(receptionist.Receptionist())
+    for _ in range(100):
+        if session.current_speech is not None:
+            await session.current_speech.wait_for_playout()
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("receptionist did not greet within 5s")
 
 
 def test_receptionist_constructs():
@@ -60,7 +76,7 @@ async def test_receptionist_reply(user_input, intent):
         sarvam.LLM(model=receptionist.LLM_MODEL) as llm,
         AgentSession(llm=llm) as session,
     ):
-        await session.start(receptionist.Receptionist())
+        await start_after_greeting(session)
         result = await session.run(user_input=user_input)
         await result.expect.next_event().is_message(role="assistant").judge(llm, intent=intent)
         result.expect.no_more_events()
@@ -72,7 +88,7 @@ async def test_receptionist_asks_name_then_uses_it():
         sarvam.LLM(model=receptionist.LLM_MODEL) as llm,
         AgentSession(llm=llm) as session,
     ):
-        await session.start(receptionist.Receptionist())
+        await start_after_greeting(session)
         result = await session.run(user_input="Hi, I want to book an appointment.")
         await result.expect.next_event().is_message(role="assistant").judge(
             llm, intent="Asks for the patient's name, or asks one booking question. Does not claim anything is booked."
@@ -80,6 +96,7 @@ async def test_receptionist_asks_name_then_uses_it():
         result = await session.run(user_input="My name is Rahul. I need a general physician on Friday morning.")
         await result.expect.next_event().is_message(role="assistant").judge(
             llm,
-            intent="Addresses the patient as Rahul. Does not say the appointment is booked, noted, or saved, "
-            "and does not invent a doctor's name or a specific time slot.",
+            intent="Addresses the patient as Rahul. May repeat the requested details back as a question to "
+            "confirm them. Does not say the appointment is booked, noted, or saved, and does not invent a "
+            "doctor's name or an exact clock time.",
         )
