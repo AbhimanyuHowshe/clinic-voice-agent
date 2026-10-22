@@ -87,6 +87,8 @@ class SessionState:
     callback_phone: str | None = None
     # Current reply language; changes only when the patient clearly switches.
     language: str = "English"
+    # Set by end_call; the voice session hangs up after the goodbye has been spoken.
+    end_call_requested: bool = False
     # Upcoming appointments found for a phone number (find_appointments), in the order read out.
     found_phone: str | None = None
     found: list[dict[str, Any]] = field(default_factory=list)
@@ -481,7 +483,19 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             return "Recorded. Tell the patient clinic staff will call them back on that number."
         return "Recorded. Ask for a phone number so staff can call back, or give the clinic phone number."
 
+    @tool
+    async def end_call() -> str:
+        """End the call after the patient says they need nothing else or says goodbye."""
+        if state.pending is not None:
+            return (
+                "There is an unconfirmed booking change. Ask the patient whether to go ahead with it "
+                "before ending the call."
+            )
+        state.end_call_requested = True
+        return "The call will end after your reply. Say one short, warm goodbye now and nothing else."
+
     return [
+        end_call,
         check_availability,
         prepare_booking,
         find_appointments,
@@ -606,6 +620,12 @@ find_appointments with the purpose. If there is more than one, ask which one. As
 the read-back of the change also confirms which appointment it is. For a new time, call
 check_availability first. Then call prepare_cancellation or prepare_reschedule, read the change
 back, and call confirm_pending_action only after a yes. Never ask for a reference number.
+
+Ending the call:
+- When a request is finished, ask once whether there is anything else you can help with.
+- If the patient says no, that's all, thank you, bye, or anything else that clearly means they
+  are done (in any language, e.g. "bas", "nahi, dhanyavaad"), call end_call and say a short goodbye.
+- Do not end the call if they are still deciding, asked you to wait, or a change is unconfirmed.
 
 If a tool reports an error or that something is not confirmed, tell the patient honestly.
 Never say anything is booked, cancelled, changed, noted, or saved unless a tool confirmed it.

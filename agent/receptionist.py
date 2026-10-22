@@ -37,6 +37,12 @@ GREETING = (
     "{hindi}Keep it short."
 )
 HINDI_OFFER = "Then add one short sentence in Hindi, in Devanagari script, saying they can also speak Hindi. "
+# Silence handling: after USER_AWAY_SECONDS without speech the agent checks in once; if the
+# patient is still silent after that, it says goodbye and hangs up.
+USER_AWAY_SECONDS = 20
+STILL_THERE = "Ask briefly, in the current conversation language, whether the patient is still there."
+GOODBYE_SILENT = "Say a short goodbye: since we can't hear the patient, the call will end now."
+
 GOODBYE_UNAVAILABLE = (
     "The clinic has just switched off the online receptionist. Please call the clinic directly. Goodbye."
 )
@@ -139,6 +145,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # Sarvam transcripts can land after the default 0.5s endpoint, and patients pause while
         # reading out phone numbers; waiting longer stops the agent cutting them off.
         turn_handling={"endpointing": {"min_delay": 1.2, "max_delay": 4.0}},
+        user_away_timeout=USER_AWAY_SECONDS,
     )
 
     if not availability.get("available"):
@@ -152,6 +159,40 @@ async def entrypoint(ctx: JobContext) -> None:
         await handle.wait_for_playout()
         session.shutdown()
         return
+
+    ended = False
+
+    def hang_up() -> None:
+        nonlocal ended
+        if ended:
+            return
+        ended = True
+        logger.info("ending call for %s", clinic.slug)
+        session.shutdown()
+        # Deleting the room disconnects the patient's browser too.
+        ctx.add_shutdown_callback(lambda: ctx.delete_room())
+        ctx.shutdown("call ended")
+
+    @session.on("speech_created")
+    def _end_after_goodbye(ev) -> None:
+        # end_call runs inside the same reply as the goodbye; hang up once that reply has played.
+        ev.speech_handle.add_done_callback(lambda _: state.end_call_requested and hang_up())
+
+    away_checks = 0
+
+    @session.on("user_state_changed")
+    def _on_user_state(ev) -> None:
+        nonlocal away_checks
+        if ev.new_state != "away":
+            if ev.new_state == "speaking":
+                away_checks = 0
+            return
+        away_checks += 1
+        if away_checks == 1:
+            session.generate_reply(instructions=STILL_THERE)
+        elif not state.end_call_requested:
+            state.end_call_requested = True
+            session.generate_reply(instructions=GOODBYE_SILENT)
 
     # record=False: no audio or transcript recordings without a consent and retention policy.
     await session.start(agent=Receptionist(state), room=ctx.room, record=False)

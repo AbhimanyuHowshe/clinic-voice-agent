@@ -350,3 +350,17 @@ def test_instructions_ground_faqs_and_doctors():
     text = build_instructions(make_state())
     assert "9 AM to 1 PM." in text and "Dr. Rohan Mehta, Pediatrician" in text
     assert "112" in text and "not a medical professional" in text
+
+
+async def test_end_call_sets_flag():
+    state = make_state()
+    out = await tools_by_name(state)["end_call"].ainvoke({})
+    assert state.end_call_requested and "goodbye" in out
+
+
+async def test_end_call_refused_while_change_unconfirmed():
+    state = make_state()
+    tools = tools_by_name(state)
+    await tools["prepare_booking"].ainvoke(BOOK_ARGS())
+    out = await tools["end_call"].ainvoke({})
+    assert not state.end_call_requested and "unconfirmed" in out

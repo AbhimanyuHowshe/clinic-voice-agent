@@ -150,3 +150,18 @@ async def test_cancel_by_phone_number_after_yes():
             judge_llm, intent="Says the appointment has been cancelled."
         )
         assert repo.appointments["100000"]["status"] == "cancelled"
+
+
+async def test_ends_call_when_patient_is_done():
+    agent = make_agent()
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, agent)
+        result = await session.run(user_input="What are the clinic timings?")
+        await result.expect.contains_message(role="assistant").judge(judge_llm, intent="Gives the clinic timings.")
+        assert not agent.state.end_call_requested
+        result = await session.run(user_input="No, that's all. Thank you, bye!")
+        await result.expect.contains_message(role="assistant").judge(judge_llm, intent="Says goodbye.")
+        assert agent.state.end_call_requested
