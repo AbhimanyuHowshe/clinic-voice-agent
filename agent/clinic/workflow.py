@@ -17,6 +17,7 @@ rules that must never depend on the model are enforced in code, here and in the 
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 import uuid
@@ -125,6 +126,11 @@ _DIGIT_WORDS = {
     # Hindi, romanized
     "shunya": "0", "ek": "1", "do": "2", "teen": "3", "char": "4", "chaar": "4", "paanch": "5",
     "panch": "5", "chhe": "6", "che": "6", "saat": "7", "aath": "8", "nau": "9",
+    # How speech recognition often spells Indian-accented English digits (seen in real calls:
+    # "Naini" for nine)
+    "naini": "9", "nain": "9", "naain": "9", "nien": "9", "zeero": "0", "jero": "0", "shoonya": "0",
+    "sunya": "0", "tree": "3", "thri": "3", "fiv": "5", "faiv": "5", "sevan": "7", "seben": "7",
+    "aight": "8", "eit": "8",
     # Hindi, Devanagari
     "शून्य": "0", "एक": "1", "दो": "2", "तीन": "3", "चार": "4", "पांच": "5", "पाँच": "5",
     "छह": "6", "छः": "6", "सात": "7", "आठ": "8", "नौ": "9",
@@ -161,6 +167,33 @@ def spoken_digits(raw: str) -> str:
             out.append(digits[0] * repeat + digits[1:])
         repeat = 1
     return "".join(out)
+
+
+# Short words that sound close to digit words but are never digits.
+_NOT_DIGITS = {
+    "the", "they", "then", "there", "to", "for", "and", "is", "it", "its", "this", "that", "yes",
+    "yeah", "ok", "okay", "sure", "wait", "sorry", "what", "haan", "han", "ji", "nahi", "hai", "hain",
+    "theek", "thik", "sir", "madam", "hello", "hi",
+}
+
+
+def fuzzy_digits(raw: str) -> str:
+    """Digits from a short reply whose words only sound like digit words ("Naini" -> "9").
+
+    Only used while a phone number is being collected, and only for replies of up to three
+    words, so ordinary speech is never turned into digits.
+    """
+    words = re.findall(r"[^\s\d.,!?;:\-]+", (raw or "").lower())
+    if not 1 <= len(words) <= 3 or any(w in _NOT_DIGITS for w in words):
+        return ""
+    vocab = [w for w in _DIGIT_WORDS if len(w) >= 3]
+    out = ""
+    for w in words:
+        match = difflib.get_close_matches(w, vocab, n=1, cutoff=0.6)
+        if not match:
+            return ""
+        out += _DIGIT_WORDS[match[0]]
+    return out
 
 
 def normalize_phone(raw: str, country: str | None = None) -> str | None:
@@ -733,8 +766,9 @@ def set_awaiting_phone(state: SessionState, awaiting: bool) -> None:
         state.awaiting_phone = awaiting
         if state.on_phone_mode is not None:
             state.on_phone_mode(awaiting)
-    if not awaiting:
-        state.phone_digits = ""
+    # Partial digits are kept even when the agent's next reply doesn't mention the number, so
+    # "...please say the last digit" style follow-ups still complete it. collect_phone_digits
+    # clears them when the patient says something that is not a number.
 
 
 def collect_phone_digits(state: SessionState, text: str) -> str | None:
@@ -747,13 +781,15 @@ def collect_phone_digits(state: SessionState, text: str) -> str | None:
     if state.digits_turn == state.turn:
         return state.phone_note
     state.digits_turn = state.turn
-    digits = spoken_digits(text)
     collecting = state.awaiting_phone or 0 < len(state.phone_digits) < 10
+    digits = spoken_digits(text) or (fuzzy_digits(text) if collecting else "")
     if not (collecting and digits):
         state.phone_note = None
         if not digits:
             state.phone_digits = ""
         return None
+    if normalize_phone(state.phone_digits, state.clinic.country):
+        state.phone_digits = ""  # a new number after a complete one replaces it
     state.phone_digits = (state.phone_digits + digits)[-15:]
     have = state.phone_digits
     phone = normalize_phone(have, state.clinic.country)

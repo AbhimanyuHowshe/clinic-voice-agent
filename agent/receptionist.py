@@ -41,7 +41,7 @@ HINDI_OFFER = "Then add one short sentence in Hindi, in Devanagari script, sayin
 # While the patient reads out a phone number the agent waits 2.5 s, so pauses between digit
 # groups do not split the number into separate turns.
 NORMAL_ENDPOINTING = {"min_delay": 1.2, "max_delay": 4.0}
-PHONE_ENDPOINTING = {"min_delay": 2.5, "max_delay": 6.0}
+PHONE_ENDPOINTING = {"min_delay": 2.5, "max_delay": 4.0}
 
 # Silence handling: after USER_AWAY_SECONDS without speech the agent checks in once; if the
 # patient is still silent after that, it says goodbye and hangs up.

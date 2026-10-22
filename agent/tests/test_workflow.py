@@ -558,3 +558,30 @@ async def test_re_finding_after_yes_says_confirm_now():
     assert "NOT cancelled" in await find.ainvoke(args)
     state.turn, state.last_answer = 2, "yes"  # "Yes, cancel it."; the model looks it up again
     assert "ALREADY said yes" in await find.ainvoke(args)
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Naini.", "9"), ("Nain", "9"), ("Nyne", "9"), ("Fore", "4"), ("Sevven", "7"), ("Tree", "3"),
+    ("the", ""), ("Hello there", ""), ("Yes please", ""), ("okay", ""), ("Radha Krishna", ""),
+    ("I don't remember the last digit of my number", ""),
+])
+def test_fuzzy_digits(raw, expected):
+    from clinic.workflow import fuzzy_digits
+
+    assert fuzzy_digits(raw) == expected
+
+
+async def test_replay_missing_last_nine_heard_as_naini():
+    """Real call 2026-10-22: STT gave 9 nines, then the last digit as 'Naini.'"""
+    from tests.fakes import ScriptedChatModel
+
+    state = make_state()
+    model = ScriptedChatModel(replies=[AIMessage(content="ok")] * 3, seen=[])
+    graph = build_graph(model, state)
+    state.awaiting_phone = True
+    h = [HumanMessage("999999999.")]
+    await graph.ainvoke({"messages": h})
+    assert "9 of 10" in model.seen[-1][-1].content
+    h += [AIMessage("Please tell me the last digit."), HumanMessage("Naini.")]
+    await graph.ainvoke({"messages": h})
+    assert "9999999999" in model.seen[-1][-1].content
