@@ -102,7 +102,7 @@ Record only verified results here. Do not mark an item done until it has actuall
   - A recheck every 60 s applies `ongoing_call_policy`: `finish` blocks changes, `end` says goodbye.
   - Each call is logged with outcome and actions only.
 - **Tests:**
-  - Offline `uv run pytest`: **37 passed**, 9 skipped (live/db).
+  - Offline `uv run pytest`: **37 passed**, 17 skipped (8 live, 9 db).
   - Live `RUN_LIVE_TESTS=1 uv run pytest tests/test_receptionist.py`: **8 passed**. Covered: English and Hindi replies, an FAQ answered from data, no fee guessing, emergency → 112, no prescribing, and a full booking against FakeRepo (read-back, nothing booked before "yes", booked with a reference after "yes"). After fixing the judge wording on the booking test, the full suite passed once. Earlier history shows the judge can be flaky.
 - **Web app** (`dashboard/`, Next.js 15.5.4): patient voice page, `/api/token`, staff login, and dashboard pages (overview with emergency OFF and quick pauses, appointments, agent controls, doctors, FAQs, calls, audit).
   - `npm run build`: **passed** (types and lint).
