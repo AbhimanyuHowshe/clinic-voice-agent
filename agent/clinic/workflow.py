@@ -87,8 +87,12 @@ class SessionState:
     actions: list[str] = field(default_factory=list)
     escalation_reason: str | None = None
     callback_phone: str | None = None
-    # Current reply language; changes only when the patient clearly switches.
+    # Current reply language. Set by the patient's first clear message; after that it changes
+    # only when they ask for the other language or speak it in two messages in a row.
     language: str = "English"
+    language_set: bool = False
+    other_language_streak: int = 0
+    language_turn: int = -1
     # Set by end_call; the voice session hangs up after the goodbye has been spoken.
     end_call_requested: bool = False
     # The patient's latest message read as an answer to a held action: "yes", "no" or None.
@@ -309,6 +313,52 @@ def detect_language(text: str) -> str | None:
     if len(real) >= 3 and hindi_words == 0 and not devanagari:
         return "English"
     return None
+
+
+_ASK_ENGLISH = re.compile(
+    r"\b(english|angrezi|angreji)\b|इंग्लिश|अंग्रेज़ी|अंग्रेजी", re.IGNORECASE
+)
+_ASK_HINDI = re.compile(r"\bhindi\b|हिंदी|हिन्दी", re.IGNORECASE)
+_ASK_WORDS = re.compile(
+    r"\b(speak|talk|in|switch|please|can|could|reply|continue|mein|me|baat|bolo|boliye|karo|kariye)\b"
+    r"|में|बात|बोल|कर",
+    re.IGNORECASE,
+)
+
+
+def requested_language(text: str) -> str | None:
+    """'English' or 'Hindi' if the patient explicitly asks to talk in that language."""
+    text = text or ""
+    short = len(re.findall(r"[^\s.,!?;:\-]+", text)) <= 2  # e.g. just "English" / "Hindi please"
+    if not (short or _ASK_WORDS.search(text)):
+        return None
+    english, hindi = bool(_ASK_ENGLISH.search(text)), bool(_ASK_HINDI.search(text))
+    if english != hindi:
+        return "English" if english else "Hindi"
+    return None
+
+
+def update_language(state: "SessionState", text: str) -> None:
+    """Once per patient turn: switch only on an explicit request or two clear messages in a row."""
+    if state.language_turn == state.turn:
+        return
+    state.language_turn = state.turn
+    if asked := requested_language(text):
+        state.language, state.language_set, state.other_language_streak = asked, True, 0
+        return
+    detected = detect_language(text)
+    if detected is None:
+        return
+    if not state.language_set:
+        # The greeting offers both languages, so the first clear message picks one.
+        state.language, state.language_set = detected, True
+        return
+    if detected == state.language:
+        state.other_language_streak = 0
+        return
+    state.other_language_streak += 1
+    if state.other_language_streak >= 2:
+        state.language, state.other_language_streak = detected, 0
 
 
 def nau_only(text: str) -> int:
@@ -798,9 +848,10 @@ def collect_phone_digits(state: SessionState, text: str) -> str | None:
     collecting = state.awaiting_phone or 0 < len(state.phone_digits) < 10
     digits = spoken_digits(text) or (fuzzy_digits(text) if collecting else "")
     nau = nau_only(text)
-    if collecting and nau and (nau >= 2 or state.phone_digits):
-        # Real call: "nau nau nau" was transcribed as "No, no, no." While collecting a number,
-        # a message of only no-words is 9s (a single "no" only once digits have started).
+    if collecting and nau:
+        # Real call: Hindi "nau nau nau" was transcribed as "No, no, no." While the agent is
+        # asking for a number (or one is partly given), every "no"-like word is a 9, even a
+        # single one at the start.
         digits = "9" * nau
     if not (collecting and digits):
         state.phone_note = None
@@ -853,11 +904,12 @@ def build_graph(model: BaseChatModel, state: SessionState):
         last_patient = next((m for m in reversed(messages) if isinstance(m, HumanMessage)), None)
         if last_patient is not None:
             # Pin the language every turn; it only changes when the patient clearly switches.
-            state.language = detect_language(last_patient.text) or state.language
+            update_language(state, last_patient.text)
             messages.append(SystemMessage(LANGUAGE_RULE[state.language]))
             p = state.pending
             state.last_answer = detect_answer(last_patient.text, p.kind if p else None)
-            if state.awaiting_phone and nau_only(last_patient.text):
+            collecting = state.awaiting_phone or 0 < len(state.phone_digits) < 10
+            if collecting and nau_only(last_patient.text):
                 state.last_answer = None  # "nau nau" (9 9), not a refusal
             if p is not None and state.turn > p.prepared_turn and state.last_answer == "no":
                 # The patient declined: drop the held action in code, not by trusting the model.

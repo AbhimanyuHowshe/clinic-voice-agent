@@ -612,9 +612,75 @@ async def test_replay_nau_nau_nau_heard_as_no_no_no():
     assert "9999999999" in model.seen[-1][-1].content
 
 
-async def test_single_no_is_not_a_digit_before_any_digits():
+async def test_single_no_is_a_nine_when_asked_for_a_number():
     state = make_state()
     state.awaiting_phone = True
     model = ScriptedChatModel(replies=[AIMessage(content="ok")], seen=[])
     await build_graph(model, state).ainvoke({"messages": [HumanMessage("No.")]})
-    assert state.phone_digits == ""
+    assert state.phone_digits == "9" and state.last_answer is None
+
+
+async def test_no_in_normal_conversation_is_english_no():
+    repo = FakeRepo()
+    state = make_state(repo)
+    model = ScriptedChatModel(replies=[
+        tool_call("prepare_booking", BOOK_ARGS(), "c1"),
+        AIMessage(content="Shall I book this?"),
+        AIMessage(content="Okay, not booked."),
+    ], seen=[])
+    graph = build_graph(model, state)
+    h = [HumanMessage("Book Dr Sharma at 9:15")]
+    await graph.ainvoke({"messages": h})
+    h += [AIMessage("Shall I book this?"), HumanMessage("No.")]
+    await graph.ainvoke({"messages": h})
+    assert state.pending is None and state.phone_digits == "" and repo.book_calls == 0
+
+
+
+async def run_turns(texts):
+    """Feed patient messages one turn at a time; return the language after each."""
+    state = make_state()
+    model = ScriptedChatModel(replies=[AIMessage(content="ok")] * len(texts), seen=[])
+    graph = build_graph(model, state)
+    history, seen = [], []
+    for text in texts:
+        history += [HumanMessage(text)]
+        await graph.ainvoke({"messages": history})
+        history += [AIMessage("ok")]
+        seen.append(state.language)
+    return seen
+
+
+async def test_first_clear_message_sets_language():
+    assert await run_turns(["मुझे कल डॉक्टर से मिलना है"]) == ["Hindi"]
+
+
+async def test_one_english_sentence_does_not_switch_but_two_do():
+    langs = await run_turns([
+        "मुझे कल डॉक्टर से मिलना है",
+        "I want the morning slot please",
+        "मेरा नाम राधा कृष्ण है",
+        "I want the morning slot please",
+        "And my name is Radha Krishna",
+    ])
+    assert langs == ["Hindi", "Hindi", "Hindi", "Hindi", "English"]
+
+
+@pytest.mark.parametrize("request_text,expected", [
+    ("Can you speak in English?", "English"),
+    ("English please", "English"),
+    ("English mein baat karo", "English"),
+])
+async def test_explicit_request_switches_immediately(request_text, expected):
+    langs = await run_turns(["मुझे कल डॉक्टर से मिलना है", request_text])
+    assert langs == ["Hindi", expected]
+
+
+async def test_explicit_hindi_request():
+    langs = await run_turns(["I would like to book an appointment", "हिंदी में बोलिए"])
+    assert langs == ["English", "Hindi"]
+
+
+async def test_mentioning_english_is_not_a_request():
+    langs = await run_turns(["मुझे कल डॉक्टर से मिलना है", "I studied English literature at college"])
+    assert langs == ["Hindi", "Hindi"]
