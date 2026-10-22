@@ -50,12 +50,12 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 - [x] Configure Sarvam STT.
 - [x] Configure Sarvam TTS.
 - [x] Configure a compatible LLM. (`sarvam-105b-conversations`.)
-- [ ] Create a basic receptionist prompt. (Name and appointment questions added; one live test still fails: English reply language and acknowledgement.)
+- [x] Create a basic receptionist prompt. (Name and appointment questions added; one live test still fails: English reply language and acknowledgement.)
 - [ ] Enable Hindi, English, and Hinglish tests.
 - [ ] Test interruptions, silence, and timeouts.
 - [x] Run a browser-based voice session. (Agents Playground, 2026-10-21; feedback logged in progress.md.)
 - [ ] Deploy the agent to LiveKit Cloud (`lk agent deploy`) as soon as a minimal agent works.
-- [ ] Scaffold the Next.js app with a public patient voice page and a server-side LiveKit token route.
+- [x] Scaffold the Next.js app with a public patient voice page and a server-side LiveKit token route.
 - [ ] Deploy the Next.js app to Vercel from GitHub (auto-deploy on push to `main`).
 - [ ] Verify a voice conversation works end to end on the public URL, not only locally.
 
@@ -70,16 +70,16 @@ The project is a **demo** for prospective clients in **India and Australia**. It
 
 ## Phase 2 — LangChain and LangGraph Integration
 
-- [ ] Add compatible LangChain packages.
-- [ ] Add LangGraph.
-- [ ] Implement the graph state schema.
-- [ ] Define receptionist intent routing.
-- [ ] Create FAQ, booking, cancellation, rescheduling, and handoff paths.
-- [ ] Define structured tool inputs and outputs.
-- [ ] Connect graph output to the LiveKit voice pipeline.
-- [ ] Verify streaming and conversational latency.
-- [ ] Add retry and error-handling rules.
-- [ ] Test graph transitions and incomplete requests.
+- [x] Add compatible LangChain packages.
+- [x] Add LangGraph.
+- [x] Implement the graph state schema.
+- [x] Define receptionist intent routing.
+- [x] Create FAQ, booking, cancellation, rescheduling, and handoff paths.
+- [x] Define structured tool inputs and outputs.
+- [x] Connect graph output to the LiveKit voice pipeline.
+- [ ] Verify streaming and conversational latency. (Text tests: first token 0.26–0.96 s through the graph; not measured by voice.)
+- [x] Add retry and error-handling rules.
+- [x] Test graph transitions and incomplete requests.
 
 Suggested initial graph:
 
@@ -115,64 +115,64 @@ END
 
 ## Phase 3 — Supabase and Backend
 
-- [ ] Create migrations for clinics, profiles, doctors, and FAQs.
-- [ ] Create appointment tables.
-- [ ] Create agent settings and schedule tables.
-- [ ] Create pause and audit-log tables.
-- [ ] Configure authentication.
-- [ ] Configure Row Level Security.
-- [ ] Implement secure backend functions.
-- [ ] Add validation and error handling.
-- [ ] Add database tests.
+- [x] Create migrations for clinics, profiles, doctors, and FAQs.
+- [x] Create appointment tables.
+- [x] Create agent settings and schedule tables.
+- [x] Create pause and audit-log tables.
+- [x] Configure authentication.
+- [x] Configure Row Level Security.
+- [x] Implement secure backend functions.
+- [x] Add validation and error handling.
+- [ ] Add database tests. (Written in `agent/tests/test_db.py`; not run yet — Supabase key invalid.)
 
 **Deliverable:** persistent clinic data and secure backend operations.
 
 ## Phase 4 — Appointment Booking
 
-- [ ] Define appointment duration and availability rules.
-- [ ] Implement real slot lookup.
-- [ ] Implement conflict-safe booking.
-- [ ] Require patient confirmation.
-- [ ] Add booking confirmation references.
-- [ ] Implement rescheduling.
-- [ ] Implement cancellation.
-- [ ] Add appropriate patient verification.
-- [ ] Add idempotency or equivalent retry protection.
-- [ ] Test simultaneous booking attempts.
+- [x] Define appointment duration and availability rules.
+- [x] Implement real slot lookup.
+- [x] Implement conflict-safe booking.
+- [x] Require patient confirmation.
+- [x] Add booking confirmation references.
+- [x] Implement rescheduling.
+- [x] Implement cancellation.
+- [x] Add appropriate patient verification.
+- [x] Add idempotency or equivalent retry protection.
+- [ ] Test simultaneous booking attempts. (Written in `test_db.py`; not run yet.)
 
 **Deliverable:** end-to-end appointment booking through the voice agent.
 
 ## Phase 5 — Admin Dashboard
 
-- [ ] Initialize Next.js and TypeScript.
-- [ ] Create staff login.
-- [ ] Create dashboard overview.
-- [ ] Create appointment calendar and list.
-- [ ] Create doctor management.
-- [ ] Create clinic FAQ management.
-- [ ] Create call history and follow-up views.
-- [ ] Create agent control page.
-- [ ] Create schedule and pause management.
-- [ ] Add role-based access.
-- [ ] Add loading, error, and empty states.
-- [ ] Test responsive layouts.
+- [x] Initialize Next.js and TypeScript.
+- [x] Create staff login.
+- [x] Create dashboard overview.
+- [x] Create appointment calendar and list.
+- [x] Create doctor management.
+- [x] Create clinic FAQ management.
+- [x] Create call history and follow-up views.
+- [x] Create agent control page.
+- [x] Create schedule and pause management.
+- [x] Add role-based access.
+- [x] Add loading, error, and empty states.
+- [ ] Test responsive layouts. (Tailwind layout is mobile-friendly; not checked on a phone.)
 
 **Deliverable:** staff can manage clinic operations from a browser.
 
 ## Phase 6 — Agent Controls and Scheduling
 
-- [ ] Implement manual ON/OFF.
-- [ ] Implement scheduled operating hours.
-- [ ] Implement breaks and holidays.
-- [ ] Implement temporary pause intervals.
-- [ ] Define manual override precedence.
-- [ ] Implement server-side effective-state calculation.
-- [ ] Enforce the state on session entry.
-- [ ] Recheck the state before important actions.
-- [ ] Define behavior for calls already in progress.
-- [ ] Implement configurable fallback handling.
-- [ ] Audit changes made by staff.
-- [ ] Test time-zone and schedule boundaries.
+- [x] Implement manual ON/OFF.
+- [x] Implement scheduled operating hours.
+- [x] Implement breaks and holidays.
+- [x] Implement temporary pause intervals.
+- [x] Define manual override precedence.
+- [x] Implement server-side effective-state calculation.
+- [x] Enforce the state on session entry.
+- [x] Recheck the state before important actions.
+- [x] Define behavior for calls already in progress.
+- [x] Implement configurable fallback handling.
+- [x] Audit changes made by staff.
+- [ ] Test time-zone and schedule boundaries. (Written in `test_db.py`; not run yet.)
 
 **Deliverable:** reliable, server-enforced agent availability.
 

@@ -4,11 +4,13 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Current Status
 
-- **Current phase:** Phase 1 — Minimal Voice Agent
-- **Next task (resume 2026-10-22):**
-  1. Fix the one failing live test, `test_receptionist_reply[en]` (see the 2026-10-21 voice test entry below), then rerun the live suite twice.
-  2. The user runs `lk cloud auth` once (it opens a browser), then retests by voice with `lk agent dev` and the Agents Playground: check the name prompt, whether the agent still cuts the patient off, interruptions and silence.
-  3. Deploy with `lk agent deploy`, then scaffold the Next.js voice page.
+- **Current phase:** Phases 2–6 built (2026-10-22); deployment (Phase 8) waits on user actions.
+- **Next tasks:**
+  1. The user fixes `agent/.env` and `dashboard/.env.local` with `scripts/set_env.py` (both currently hold invalid values; see Pending User Actions).
+  2. Run `RUN_DB_TESTS=1 uv run pytest tests/test_db.py` (database functions: concurrency, idempotency, schedules).
+  3. Create a staff login (`scripts/create_staff.py`), then click through the dashboard locally.
+  4. Voice test through the web app (`npm run dev` + `lk agent dev`): book, reschedule, cancel, emergency OFF mid-call.
+  5. Deploy: `lk cloud auth` + `lk agent create`, then Vercel.
 
 ## Completed
 
@@ -84,17 +86,48 @@ Record only verified results here. Do not mark an item done until it has actuall
 - Live suite **not yet consistently green.** Over 4 runs: 7/7, 6/7, 5/7, 6/7. The failures were mostly the judge penalising the read-back question (the test intent is now reworded but **not rerun**) and sometimes not using the name "Rahul". The last run hit **Sarvam 429 rate limits**.
 - The user wants to show the MVP to a client today. Paused live test runs to save Sarvam quota; the worker is running locally for the demo via the Agents Playground.
 
+### 2026-10-22: Database, booking workflow, web app (commits `737e361`, `822da6c`)
+- **Google Sheets sync** added to `plan.md` as Phase 10, deferred until after the demo (user decision).
+- **Supabase migrations applied** to the linked project with `npx supabase db push` (4 migrations, no errors), and the **demo seed applied** with `--include-seed`. Contents:
+  - Tables from CLAUDE.md plus `doctor_schedules` and `clinic_holidays`. `appointments` has a GiST **exclusion constraint** so two live bookings for one doctor cannot overlap, even under concurrency.
+  - Functions: `agent_effective_state` (manual OFF > holiday > pause > schedule; clinic time zone; overnight windows), `available_slots` (only from consulting hours, minus holidays, past times and booked slots), `book_appointment` (idempotency key, rechecks agent availability, returns `slot_taken` on a race), `find/cancel/reschedule_appointment` (6-digit reference + phone, idempotent).
+  - RLS: `anon` gets nothing; staff read their own clinic; admins change config; any staff member can pause the agent; booking functions are `service_role` only. Audit triggers on config and appointments, with patient name and phone removed from audit rows.
+  - **Not verified yet:** the functions have not been called, because Supabase rejects the key in `agent/.env` ("Invalid API key"). `tests/test_db.py` (9 tests) is written and waiting.
+- **LangGraph workflow** (`agent/clinic/workflow.py`): agent node (ChatSarvam with tools) ⇄ ToolNode. Tools: `check_availability`, `prepare_booking`, `prepare_cancellation`, `prepare_reschedule`, `confirm_pending_action`, `escalate_to_staff`. Rules enforced in code: confirm only runs in a later patient turn than the prepare; slots must come from the database; availability is rechecked before every change; one idempotency key per pending booking, kept after a failed write. FAQs and doctors are loaded from Supabase into the prompt at call start.
+- **Bug found and fixed:** in LLMAdapter's `messages` stream mode, tool results (e.g. "Held, NOT booked yet…") were **spoken aloud**. The graph now streams only the model's text through `get_stream_writer()` with `stream_mode="custom"`.
+- **Bug found and fixed:** the model replied in Hinglish to English messages. The agent node now detects the language of the latest patient message (Devanagari → Hindi; 2+ common romanized Hindi words → Hinglish; else English) and pins it for that turn.
+- `receptionist.py` changes:
+  - The clinic is chosen from the room name `clinic-<slug>-<random>`.
+  - When the agent is unavailable, it speaks the fallback message (plus the staff number in `transfer` mode) and hangs up.
+  - A recheck every 60 s applies `ongoing_call_policy`: `finish` blocks changes, `end` says goodbye.
+  - Each call is logged with outcome and actions only.
+- **Tests:**
+  - Offline `uv run pytest`: **37 passed**, 9 skipped (live/db).
+  - Live `RUN_LIVE_TESTS=1 uv run pytest tests/test_receptionist.py`: **8 passed**. Covered: English and Hindi replies, an FAQ answered from data, no fee guessing, emergency → 112, no prescribing, and a full booking against FakeRepo (read-back, nothing booked before "yes", booked with a reference after "yes"). After fixing the judge wording on the booking test, the full suite passed once. Earlier history shows the judge can be flaky.
+- **Web app** (`dashboard/`, Next.js 15.5.4): patient voice page, `/api/token`, staff login, and dashboard pages (overview with emergency OFF and quick pauses, appointments, agent controls, doctors, FAQs, calls, audit).
+  - `npm run build`: **passed** (types and lint).
+  - Local `next start` check: `/` returns 200; `/dashboard` redirects to `/login` when signed out; `/api/token` rejects unknown clinics (400) and returns a token for `sanjeevani`.
+  - Found: `dashboard/.env.local` has an invalid `LIVEKIT_URL` (the placeholder repeated, as if several lines were pasted at once). `set_env.py` now rejects placeholders, pasted variable names and whitespace.
+- Added `agent/Dockerfile` and `.dockerignore` for `lk agent create`. **Not built yet** (Docker Desktop not running).
+- `scripts/create_staff.py` creates dashboard logins (sign-up is off).
+- Not tested yet: dashboard pages against real data (no staff login yet), voice through the web app, `test_db.py`, deployment.
+
 ## In Progress
 
-- **Live prompt suite:** rerun after the demo with the reworded read-back test intent. Run tests one file at a time to avoid Sarvam 429s.
+- Waiting on the user's credential fixes to run `tests/test_db.py` and the dashboard against real data.
 
 ## Pending User Actions
 
-- **Rotate the LiveKit API key.** Real credentials had been pasted into `dashboard/.env.example`; they were never committed, but a Claude session saw them. Put the new values only in `agent/.env` and `dashboard/.env.local`.
-- **Fix line 12 of `agent/.env`**, which `python-dotenv` cannot parse.
-- **Run `lk cloud auth`** (it opens a browser). Both `lk agent dev` and `lk agent deploy` need it.
-- **Push to GitHub:** 10 commits on `main` are local only (up to `3aaaaf6`). Waiting for the user's go-ahead.
-- **Confirm the Supabase region.** This log records it as Mumbai (user report), but `plan.md` and Known Limitations say Seoul (`ap-northeast-2`). Check `supabase projects list`.
+- **Fix `agent/.env` and `dashboard/.env.local`** with `cd agent && uv run python scripts/set_env.py`, in your own terminal, pasting one value at a time.
+  - Supabase rejects the current `SUPABASE_SERVICE_ROLE_KEY` ("Invalid API key").
+  - `dashboard/.env.local` has a broken `LIVEKIT_URL`.
+  - `python-dotenv` can't parse line 12 of `agent/.env`. The script rewrites the known lines, but check the file for leftover junk.
+- **Rotate the LiveKit API key** (exposed in a Claude session on 2026-10-21).
+- **Run `lk cloud auth`** (opens a browser) for `lk agent dev/create/deploy`.
+- **Run `vercel login`**, or import the repo in the Vercel dashboard (Root Directory `dashboard`).
+- **Push to GitHub:** commits on `main` are local only. Waiting for the user's go-ahead.
+- **Confirm the Supabase region** (Mumbai vs Seoul, recorded inconsistently).
+- Optional: upgrade local Node to 22 (supabase-js 2.118 warns on Node 20; the build still passes).
 
 ## Open Questions
 
@@ -102,10 +135,14 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Not Yet Done
 
-- Supabase: no connection test from code yet, no migrations, and free-tier quotas not checked.
-- Phase 1: voice retest after the endpointing and prompt changes; interruption, silence and timeout tests; Hindi and Hinglish tested by speech (so far only text tests); `lk agent deploy`; the Next.js voice page and token route; Vercel deployment.
-- A turn-detector model is not enabled; turn-taking relies on VAD plus STT endpointing.
-- No TTS for the Australian clinic yet (Sarvam has no non-Indian voice).
+- Database functions have not been run against the real project (`test_db.py` is blocked on the key).
+- Dashboard not clicked through with a real staff login. No automated UI or RLS tests yet: the RLS policies are written but untested from an `authenticated` session.
+- Voice: no test through the web app yet. Interruptions, silence and timeouts are untested. Hindi and Hinglish are only tested in text.
+- Deployment: the agent image is not built; nothing is on LiveKit Cloud or Vercel yet.
+- Voicemail fallback is not implemented (it plays the closed message). There is no live call transfer: `transfer` mode speaks the staff number.
+- A turn-detector model is not enabled. No non-Indian TTS voice for the Australian clinic yet.
+- `/api/token` has no rate limit: anyone with the URL can start sessions, up to the LiveKit plan caps.
+- Phase 9 (telephony) and Phase 10 (Google Sheets) are not started.
 
 ## Verified Dependency Versions
 
@@ -123,7 +160,11 @@ Installed and checked offline on 2026-10-21 with Python 3.13.13 on Windows 11. L
 | livekit-api | 1.2.2 |
 | langgraph | 1.2.16 |
 | langchain-core | 1.6.12 |
-| langchain-sarvam | 0.1.2 (live-tested 2026-10-21) |
+| langchain-sarvam | 0.1.2 (live-tested 2026-10-21; tool calls through LangGraph 2026-10-22) |
+| tzdata | 2025.2 (needed for zoneinfo on Windows) |
+| next / react | 15.5.4 / 19.1.0 |
+| @supabase/supabase-js / @supabase/ssr | 2.118.0 / 0.12.7 |
+| livekit-server-sdk / livekit-client / @livekit/components-react | 2.19.2 / 2.23.0 / 2.9.24 |
 | sarvamai | 0.1.37 |
 | openai (transitive) | 3.35.1 |
 | onnxruntime (transitive) | 1.31.0 |
@@ -133,7 +174,7 @@ Installed and checked offline on 2026-10-21 with Python 3.13.13 on Windows 11. L
 
 ## Environment Variables
 
-Provisional names, to be confirmed against the SDKs in Phase 0–1:
+Clinic time zones now come from the `clinics` table (`CLINIC_TIMEZONE` was removed).
 
 | Variable | Where | Purpose |
 |----------|-------|---------|
@@ -142,8 +183,8 @@ Provisional names, to be confirmed against the SDKs in Phase 0–1:
 | `LIVEKIT_API_SECRET` | agent, dashboard (server) | LiveKit API secret |
 | `SARVAM_API_KEY` | agent | Sarvam AI API key |
 | `SUPABASE_URL` | agent | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | agent | Server-only Supabase key; never sent to a browser |
-| `CLINIC_TIMEZONE` | agent | Default clinic time zone (`Asia/Kolkata`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | agent | Server-only Supabase secret key; never sent to a browser |
+| `DEFAULT_CLINIC_SLUG` | agent | Clinic for rooms not created by the web app (default `sanjeevani`) |
 | `NEXT_PUBLIC_SUPABASE_URL` | dashboard (public) | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | dashboard (public) | Supabase anon key, restricted by RLS |
 
