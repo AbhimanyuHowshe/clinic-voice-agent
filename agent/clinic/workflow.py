@@ -176,14 +176,26 @@ def normalize_phone(raw: str, country: str | None = None) -> str | None:
     return ("+" if plus else "") + digits
 
 
+def speak_phone(phone: str) -> str:
+    """A number as it should be read back: digit by digit with pauses between groups.
+
+    Indian mobiles use 3-3-4 ("9 9 9, 9 9 9, 9 9 9 9"), which is how people say them.
+    """
+    digits = phone.lstrip("+")
+    if len(digits) <= 10:  # full or partial 10-digit number: 3-3-4
+        groups = [g for g in (digits[:3], digits[3:6], digits[6:]) if g]
+    else:
+        groups = [digits[i:i + 4] for i in range(0, len(digits), 4)]
+    return ", ".join(" ".join(g) for g in groups)
+
+
 def phone_problem(raw: str, country: str | None) -> str:
     """What to tell the patient when a phone number is unusable."""
     digits = spoken_digits(raw)
     if country == "IN" and 0 < len(digits) < 10:
-        grouped = " ".join(digits[i:i + 5] for i in range(0, len(digits), 5))
         return (
-            f"I only have {len(digits)} digits ({grouped}). Tell the patient the digits you have and "
-            f"ask for the remaining {10 - len(digits)}."
+            f"I only have {len(digits)} digits ({speak_phone(digits)}). Tell the patient the digits you "
+            f"have and ask for the remaining {10 - len(digits)}."
         )
     return "The mobile number is not valid. Ask the patient to say all 10 digits again, slowly."
 
@@ -379,6 +391,22 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         if not same:
             state.pending = action
 
+    def resolve_phone(raw: str) -> str | None:
+        """The model's number, else the number joined from the patient's messages, else None.
+
+        On failure the partial digits seed the joiner and collection mode turns on, so the
+        patient only has to say the missing digits.
+        """
+        country = state.clinic.country
+        for candidate in (raw, state.phone_digits, state.phone_digits + spoken_digits(raw)):
+            if phone := normalize_phone(candidate, country):
+                return phone
+        heard = spoken_digits(raw)
+        if len(heard) > len(state.phone_digits) and len(heard) < 10:
+            state.phone_digits = heard
+        set_awaiting_phone(state, True)
+        return None
+
     async def local_slots(doctor: Doctor, day: date) -> list[datetime]:
         # The database returns UTC instants; patients hear clinic-local times.
         return [s.astimezone(state.tz) for s in await repo.available_slots(doctor.id, day)]
@@ -439,18 +467,15 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         name = (patient_name or "").strip()
         if not 1 <= len(name) <= 120:
             return "Ask the patient for their name."
-        # Prefer the model's value; fall back to the digits joined in code from the patient's messages.
-        phone = normalize_phone(patient_phone, state.clinic.country) or normalize_phone(
-            state.phone_digits, state.clinic.country
-        )
+        phone = resolve_phone(patient_phone)
         if phone is None:
-            return phone_problem(patient_phone, state.clinic.country)
+            return phone_problem(state.phone_digits or patient_phone, state.clinic.country)
         slot = await slot_for(doc, date, time)
         if isinstance(slot, str):
             return slot
         summary = (
             f"{doc.name} on {speak_day(slot.date())} at {speak_time(slot)} for {name}, "
-            f"mobile {' '.join(phone)}"
+            f"mobile {speak_phone(phone)}"
         )
         hold(PendingAction(
             kind="book", prepared_turn=state.turn, summary=summary,
@@ -480,9 +505,9 @@ def build_tools(state: SessionState) -> list[BaseTool]:
             patient_phone: The mobile number used when booking, digits only.
             purpose: What the patient wants to do: "cancel", "reschedule", or "check".
         """
-        phone = normalize_phone(patient_phone, state.clinic.country)
+        phone = resolve_phone(patient_phone)
         if phone is None:
-            return phone_problem(patient_phone, state.clinic.country)
+            return phone_problem(state.phone_digits or patient_phone, state.clinic.country)
         found = await repo.find_by_phone(state.clinic.id, phone)
         state.found_phone, state.found = phone, list(found)
         if not found:
@@ -653,9 +678,14 @@ _PHONE_PROMPT_WORDS = ("mobile", "phone", "number", "digit", "नंबर", "�
 
 
 def asks_for_phone(reply: str) -> bool:
-    """Whether the agent's reply asks the patient for (more of) a phone number."""
+    """Whether the agent's reply asks the patient for (more of) a phone number.
+
+    A reply that already contains a full number (the read-back) is not a request.
+    """
     text = (reply or "").lower()
-    return "?" in text and any(w in text for w in _PHONE_PROMPT_WORDS)
+    if len(re.findall(r"\d", text)) >= 10:
+        return False
+    return any(w in text for w in _PHONE_PROMPT_WORDS)
 
 
 def set_awaiting_phone(state: SessionState, awaiting: bool) -> None:
@@ -678,7 +708,8 @@ def collect_phone_digits(state: SessionState, text: str) -> str | None:
         return state.phone_note
     state.digits_turn = state.turn
     digits = spoken_digits(text)
-    if not (state.awaiting_phone and digits):
+    collecting = state.awaiting_phone or 0 < len(state.phone_digits) < 10
+    if not (collecting and digits):
         state.phone_note = None
         if not digits:
             state.phone_digits = ""
@@ -688,14 +719,14 @@ def collect_phone_digits(state: SessionState, text: str) -> str | None:
     phone = normalize_phone(have, state.clinic.country)
     if phone:
         state.phone_note = (
-            f"The patient's complete mobile number, joined from their messages, is {phone}. Use exactly "
-            "this as the phone number; do not ask for it again."
+            f"The patient's complete mobile number, joined from their messages, is {phone} (say it as "
+            f"\"{speak_phone(phone)}\"). Use exactly this as the phone number; do not ask for it again."
         )
     elif state.clinic.country == "IN" and len(have) < 10:
-        grouped = " ".join(have[i:i + 5] for i in range(0, len(have), 5))
         state.phone_note = (
-            f"Mobile digits heard so far, joined from the patient's messages: {grouped} ({len(have)} of 10). "
-            f"Ask only for the remaining {10 - len(have)} digits; do not ask them to repeat the whole number."
+            f"Mobile digits heard so far, joined from the patient's messages: {speak_phone(have)} "
+            f"({len(have)} of 10). Ask only for the remaining {10 - len(have)} digits; do not ask them "
+            "to repeat the whole number."
         )
     else:
         state.phone_digits = ""
@@ -805,8 +836,9 @@ Booking an appointment (one question at a time):
    pass ALL the number words and digits from those messages to prepare_booking exactly as
    heard (e.g. "triple 9 9999 triple 9 999"); the tool converts them. If it says digits are
    missing, tell the patient which digits you have and ask for the rest. Never guess digits.
-4. Call prepare_booking, read the details back including the mobile number digit by digit,
-   and ask "Shall I book this?".
+4. Call prepare_booking, read the details back, and ask "Shall I book this?". Say the mobile
+   number exactly in the grouped form the tool gives (e.g. "9 8 7, 6 5 4, 3 2 1 0") so the
+   patient can follow it.
 5. Only after the patient clearly says yes, call confirm_pending_action. Say the appointment
    is booked only if it returns BOOKED.
 

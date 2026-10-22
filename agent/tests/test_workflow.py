@@ -474,7 +474,7 @@ async def test_phone_digits_joined_across_messages_with_long_wait():
     # Simulate the second fragment arriving as its own turn.
     await graph.ainvoke({"messages": history[:3]})
     note = model.seen[-1][-1].content
-    assert "99999 (5 of 10)" in note and "remaining 5" in note
+    assert "9 9 9, 9 9 (5 of 10)" in note and "remaining 5" in note
     await graph.ainvoke({"messages": history})
     note = model.seen[-1][-1].content
     assert "9999999999" in note and "complete mobile number" in note
@@ -486,3 +486,38 @@ async def test_prepare_booking_falls_back_to_joined_digits():
     state.phone_digits = "9876543210"
     held = await tools_by_name(state)["prepare_booking"].ainvoke({**BOOK_ARGS(), "patient_phone": "987"})
     assert "NOT booked" in held and state.pending.phone == "9876543210"
+
+
+def test_speak_phone_groups_3_3_4():
+    from clinic.workflow import speak_phone
+
+    assert speak_phone("9876543210") == "9 8 7, 6 5 4, 3 2 1 0"
+    assert speak_phone("98765") == "9 8 7, 6 5"
+
+
+async def test_replay_of_split_number_call():
+    """Real call 2026-10-22: no question mark in the ask; STT split 'triple 9 x3 and 9'."""
+    from tests.fakes import ScriptedChatModel
+
+    repo = FakeRepo()
+    await book_one(repo)  # booked with 98765 43210
+    state = make_state(repo)
+    model = ScriptedChatModel(replies=[
+        AIMessage(content="Please tell me your mobile number."),
+        tool_call("find_appointments", {"patient_phone": "triple 9 999 999", "purpose": "cancel"}, "c1"),
+        AIMessage(content="I have 9 9 9, 9 9 9, 9 9 9. Please tell me the last digit."),
+        tool_call("find_appointments", {"patient_phone": "9", "purpose": "cancel"}, "c2"),
+        AIMessage(content="No upcoming appointments for that number."),
+    ], seen=[])
+    graph = build_graph(model, state)
+    h = [HumanMessage("मुझे कल की अपॉइंटमेंट कैंसिल करानी है")]
+    await graph.ainvoke({"messages": h})
+    assert state.awaiting_phone
+    h += [AIMessage("Please tell me your mobile number."), HumanMessage("Triple 9. 999. 999.")]
+    out = await graph.ainvoke({"messages": h})
+    assert "only have 9 digits" in [m for m in out["messages"] if isinstance(m, ToolMessage)][-1].content
+    h += [AIMessage("I have 9 9 9, 9 9 9, 9 9 9. Please tell me the last digit."), HumanMessage("Nine.")]
+    out = await graph.ainvoke({"messages": h})
+    result = [m for m in out["messages"] if isinstance(m, ToolMessage)][-1].content
+    # The model passed only "9"; the code joined it with the 9 digits heard earlier.
+    assert "No upcoming appointments" in result and state.found_phone == "9999999999"

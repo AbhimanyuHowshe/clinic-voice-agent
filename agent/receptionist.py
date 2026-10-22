@@ -147,7 +147,11 @@ async def entrypoint(ctx: JobContext) -> None:
     session = AgentSession(
         vad=ctx.proc.userdata["vad"],
         stt=sarvam.STT(language="unknown", model="saaras:v4"),
-        tts=sarvam.TTS(target_language_code=clinic.voice_language, model="bulbul:v3", speaker="priya"),
+        tts=sarvam.TTS(
+            target_language_code=clinic.voice_language, model="bulbul:v3", speaker="priya",
+            # Slightly slower than default so patients can follow numbers, dates and times.
+            pace=0.9,
+        ),
         turn_handling={"endpointing": NORMAL_ENDPOINTING},
         user_away_timeout=USER_AWAY_SECONDS,
     )
