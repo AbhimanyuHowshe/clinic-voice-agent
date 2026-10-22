@@ -140,8 +140,9 @@ async def test_cancel_by_phone_number_after_yes():
         )
         await result.expect.contains_message(role="assistant").judge(
             judge_llm,
-            intent="Mentions the appointment with Dr. Sharma at 9:15 AM and asks the patient to confirm the "
-            "cancellation. Does not ask for a reference number and does not say it is already cancelled.",
+            intent="Mentions the appointment with Dr. Sharma at 9:15 AM and asks whether to cancel it "
+            "(e.g. 'Shall I cancel this?'). Does not ask for a reference number and does not say it is "
+            "already cancelled.",
         )
         assert repo.appointments["100000"]["status"] == "booked", "cancelled before the patient confirmed"
 
@@ -189,3 +190,41 @@ async def test_spoken_number_then_change_of_mind_books_nothing():
             judge_llm, intent="Confirms that nothing was booked, or that the booking was not made."
         )
         assert repo.appointments == {} and repo.book_calls == 0
+
+
+async def test_asks_for_ten_digit_number_slowly():
+    day = next_open_day()
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, make_agent())
+        result = await session.run(
+            user_input=f"Book Dr. Sharma on {day.isoformat()} at 9:30 AM. My name is Rahul Verma."
+        )
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Asks for the patient's 10-digit mobile number and asks them to say it slowly.",
+        )
+
+
+async def test_taken_time_is_refused_with_alternatives():
+    """Real call 2026-10-22: patient asked for an already-booked time and the agent said 'noted'."""
+    repo = FakeRepo()
+    day = next_open_day()
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo
+
+    taken = datetime.combine(day, time(9, 15), tzinfo=ZoneInfo(CLINIC.timezone))
+    await repo.book(CLINIC.id, SHARMA.id, taken, "Someone Else", "9123456789", "seed-key-2")
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, make_agent(repo))
+        result = await session.run(user_input=f"I want Dr. Sharma on {day.isoformat()} at 9:15 AM.")
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Says 9:15 AM is not available and offers other times such as 9:00 AM or 9:30 AM. "
+            "Does not accept or note 9:15 AM.",
+        )

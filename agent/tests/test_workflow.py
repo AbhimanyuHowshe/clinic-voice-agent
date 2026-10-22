@@ -521,3 +521,16 @@ async def test_replay_of_split_number_call():
     result = [m for m in out["messages"] if isinstance(m, ToolMessage)][-1].content
     # The model passed only "9"; the code joined it with the 9 digits heard earlier.
     assert "No upcoming appointments" in result and state.found_phone == "9999999999"
+
+
+async def test_check_specific_time_free_or_taken():
+    repo = FakeRepo()
+    await book_one(repo)  # takes 9:15
+    tools = tools_by_name(make_state(repo))
+    day = next_open_day().isoformat()
+    free = await tools["check_availability"].ainvoke({"doctor": "Sharma", "date": day, "time": "9:30 AM"})
+    assert free.startswith("YES") and "9:30 AM" in free
+    taken = await tools["check_availability"].ainvoke({"doctor": "Sharma", "date": day, "time": "9:15"})
+    assert taken.startswith("NO") and "9:00 AM or 9:30 AM" in taken
+    outside = await tools["check_availability"].ainvoke({"doctor": "Sharma", "date": day, "time": "5 PM"})
+    assert outside.startswith("NO") and "9:45 AM" in outside

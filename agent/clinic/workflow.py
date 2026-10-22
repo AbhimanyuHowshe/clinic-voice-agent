@@ -421,12 +421,15 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         return None
 
     @tool
-    async def check_availability(doctor: str, date: str) -> str:
-        """Look up free appointment times for a doctor on a date.
+    async def check_availability(doctor: str, date: str, time: str = "") -> str:
+        """Look up free appointment times for a doctor on a date, or check one specific time.
+
+        Call this every time the patient names a time, before saying anything about it.
 
         Args:
             doctor: Doctor name or specialty, e.g. "Dr. Sharma" or "pediatrician".
             date: Clinic-local date as YYYY-MM-DD.
+            time: The time the patient asked for, e.g. "17:00" or "5 PM". Leave empty to list free times.
         """
         doc = resolve_doctor(doctor)
         if isinstance(doc, str):
@@ -436,6 +439,21 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         if day is None:
             return f"The date must be YYYY-MM-DD, from {today.isoformat()} up to {BOOKING_HORIZON_DAYS} days ahead."
         slots = await local_slots(doc, day)
+        if time.strip():
+            # A specific time is answered in code, so a taken time is never accepted.
+            at = parse_time(time)
+            if at is None:
+                return "Ask the patient which time they want, e.g. 10:30 AM."
+            wanted = datetime.combine(day, at, tzinfo=state.tz)
+            if wanted in slots:
+                return f"YES: {speak_time(wanted)} on {speak_day(day)} is free with {doc.name}."
+            nearest = sorted(slots, key=lambda s: abs(s - wanted))[:2]
+            offer = " or ".join(speak_time(s) for s in sorted(nearest)) if nearest else "none that day"
+            return (
+                f"NO: {speak_time(wanted)} on {speak_day(day)} is NOT available with {doc.name} (already "
+                f"booked or outside consulting hours). Tell the patient clearly, and offer the nearest free "
+                f"times: {offer}."
+            )
         if slots:
             return f"{doc.name} is free on {speak_day(day)} ({day.isoformat()}) at: {summarize_slots(slots)}."
         for offset in range(1, NEXT_DAY_SEARCH + 1):
@@ -830,8 +848,15 @@ staff call back (escalate_to_staff). Never guess timings, fees, doctors, or poli
 Booking an appointment (one question at a time):
 1. Find out which doctor or specialty, and the preferred day. Convert words like "tomorrow"
    to a YYYY-MM-DD date using today's date above.
-2. Call check_availability. Offer only the times it returns. Never invent a time.
-3. Ask for the patient's full name, then their mobile number. Speech recognition often splits
+2. Call check_availability. Offer only the times it returns. Never invent a time. Whenever the
+   patient names a time, call check_availability with that time BEFORE replying. If it says NO,
+   tell them that time is not available and offer the times it suggests. Never say a time is
+   fine, noted or held unless check_availability said YES or prepare_booking held it.
+3. Ask for the patient's full name, then their mobile number, unless they already said them.
+   If the patient already gave a number (in any form, e.g. "triple 9 triple 9 9999"), do NOT
+   ask again: call prepare_booking with it and let the tool check it. When you do ask for the
+   number, ask like this, in the conversation language: "Please tell me your 10-digit mobile number, slowly."
+   or "कृपया अपना 10 अंकों का मोबाइल नंबर धीरे-धीरे बताइए।" Speech recognition often splits
    a number across several messages (e.g. "98765" then "43210", or "triple 9" then "9999"):
    pass ALL the number words and digits from those messages to prepare_booking exactly as
    heard (e.g. "triple 9 9999 triple 9 999"); the tool converts them. If it says digits are
@@ -842,7 +867,8 @@ Booking an appointment (one question at a time):
 5. Only after the patient clearly says yes, call confirm_pending_action. Say the appointment
    is booked only if it returns BOOKED.
 
-Cancelling or moving an appointment: ask for the mobile number used to book and call
+Cancelling or moving an appointment: ask for the 10-digit mobile number used to book, slowly
+(same wording as above), and call
 find_appointments with the purpose. If there is more than one, ask which one. Ask for confirmation only once:
 the read-back of the change also confirms which appointment it is. For a new time, call
 check_availability first. Then call prepare_cancellation or prepare_reschedule, read the change
