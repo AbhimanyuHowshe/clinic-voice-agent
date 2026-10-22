@@ -445,3 +445,44 @@ async def test_confirm_needs_a_clear_yes():
     state.turn, state.last_answer = 1, None  # e.g. "hmm" or another question
     assert "not clearly said yes" in await tools["confirm_pending_action"].ainvoke({})
     assert repo.book_calls == 0
+
+
+def test_asks_for_phone():
+    from clinic.workflow import asks_for_phone
+
+    assert asks_for_phone("Thanks Rahul. What is your mobile number?")
+    assert asks_for_phone("कृपया अपना मोबाइल नंबर बताइए?")
+    assert not asks_for_phone("Your appointment is booked for 9 AM.")
+
+
+async def test_phone_digits_joined_across_messages_with_long_wait():
+    modes = []
+    state = make_state()
+    state.on_phone_mode = modes.append
+    model = ScriptedChatModel(replies=[
+        AIMessage(content="What is your mobile number?"),
+        AIMessage(content="I have 99999 9999. What are the last digits of your number?"),
+        AIMessage(content="Thanks."),
+    ], seen=[])
+    graph = build_graph(model, state)
+    history = [HumanMessage("I'm Radha Krishna")]
+    await graph.ainvoke({"messages": history})
+    assert state.awaiting_phone and modes == [True]
+
+    history += [AIMessage("What is your mobile number?"), HumanMessage("triple 9 double 9")]
+    history += [AIMessage("..."), HumanMessage("no 9999")]  # Hindi "nau" heard as "no"
+    # Simulate the second fragment arriving as its own turn.
+    await graph.ainvoke({"messages": history[:3]})
+    note = model.seen[-1][-1].content
+    assert "99999 (5 of 10)" in note and "remaining 5" in note
+    await graph.ainvoke({"messages": history})
+    note = model.seen[-1][-1].content
+    assert "9999999999" in note and "complete mobile number" in note
+    assert modes == [True, False] and not state.awaiting_phone
+
+
+async def test_prepare_booking_falls_back_to_joined_digits():
+    state = make_state()
+    state.phone_digits = "9876543210"
+    held = await tools_by_name(state)["prepare_booking"].ainvoke({**BOOK_ARGS(), "patient_phone": "987"})
+    assert "NOT booked" in held and state.pending.phone == "9876543210"

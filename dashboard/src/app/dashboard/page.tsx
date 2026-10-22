@@ -10,21 +10,25 @@ export default async function Overview() {
   const supabase = await createClient();
   const tz = staff.clinic.timezone;
   const today = localDayRange(localDate(new Date(), tz), tz);
+  const weekEnd = new Date(new Date(today.start).getTime() + 7 * 24 * 3600 * 1000).toISOString();
 
-  const [{ data: state }, { data: settings }, { data: todays }, { data: calls }] = await Promise.all([
+  const [{ data: state }, { data: settings }, { data: upcoming }, { data: calls }] = await Promise.all([
     supabase.rpc("agent_effective_state", { p_clinic_id: staff.clinic.id }),
     supabase.from("agent_settings").select("manual_enabled").eq("clinic_id", staff.clinic.id).single(),
     supabase
       .from("appointments")
       .select("id, reference, patient_name, patient_phone, starts_at, status, source, doctors(name)")
       .gte("starts_at", today.start)
-      .lt("starts_at", today.end)
+      .lt("starts_at", weekEnd)
+      .eq("status", "booked")
       .order("starts_at"),
     supabase.from("call_logs").select("id", { count: "exact" }).eq("follow_up_done", false).not("callback_phone", "is", null),
   ]);
 
   const effective = state as EffectiveState | null;
-  const booked = (todays ?? []).filter((a) => a.status === "booked").length;
+  const rows = (upcoming ?? []) as unknown as AppointmentRow[];
+  const todayEnd = new Date(today.end).getTime();
+  const booked = rows.filter((a) => new Date(a.starts_at).getTime() < todayEnd).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,8 +80,13 @@ export default async function Overview() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="font-semibold">Today&apos;s appointments</h2>
-        <AppointmentsTable rows={(todays ?? []) as unknown as AppointmentRow[]} timeZone={tz} />
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Upcoming appointments (next 7 days)</h2>
+          <Link href="/dashboard/appointments" className="text-sm text-teal-700 underline dark:text-teal-400">
+            All appointments
+          </Link>
+        </div>
+        <AppointmentsTable rows={rows} timeZone={tz} />
       </section>
     </div>
   );

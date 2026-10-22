@@ -22,6 +22,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from collections.abc import Callable
 from typing import Annotated, Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
@@ -91,6 +92,13 @@ class SessionState:
     end_call_requested: bool = False
     # The patient's latest message read as an answer to a held action: "yes", "no" or None.
     last_answer: str | None = None
+    # Phone number capture across several patient messages (see collect_phone_digits).
+    awaiting_phone: bool = False
+    phone_digits: str = ""
+    phone_note: str | None = None
+    digits_turn: int = -1
+    # Called with True/False when phone capture starts/ends (the voice session waits longer).
+    on_phone_mode: Callable[[bool], None] | None = None
     # Upcoming appointments found for a phone number (find_appointments), in the order read out.
     found_phone: str | None = None
     found: list[dict[str, Any]] = field(default_factory=list)
@@ -431,7 +439,10 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         name = (patient_name or "").strip()
         if not 1 <= len(name) <= 120:
             return "Ask the patient for their name."
-        phone = normalize_phone(patient_phone, state.clinic.country)
+        # Prefer the model's value; fall back to the digits joined in code from the patient's messages.
+        phone = normalize_phone(patient_phone, state.clinic.country) or normalize_phone(
+            state.phone_digits, state.clinic.country
+        )
         if phone is None:
             return phone_problem(patient_phone, state.clinic.country)
         slot = await slot_for(doc, date, time)
@@ -635,7 +646,64 @@ _PRIVATE_ARGS = {"patient_name", "patient_phone", "callback_phone"}
 
 def _redact(text: str) -> str:
     text = re.sub(r"(?<![\d-])\+?\d(?:[\d ]{6,})\d(?![\d-])", "<phone>", text)
-    return re.sub(r" for [^,]+, phone", " for <name>, phone", text)
+    return re.sub(r" for [^,]+, (phone|mobile)", r" for <name>, \1", text)
+
+
+_PHONE_PROMPT_WORDS = ("mobile", "phone", "number", "digit", "नंबर", "मोबाइल", "फ़ोन", "फोन", "अंक")
+
+
+def asks_for_phone(reply: str) -> bool:
+    """Whether the agent's reply asks the patient for (more of) a phone number."""
+    text = (reply or "").lower()
+    return "?" in text and any(w in text for w in _PHONE_PROMPT_WORDS)
+
+
+def set_awaiting_phone(state: SessionState, awaiting: bool) -> None:
+    if awaiting != state.awaiting_phone:
+        state.awaiting_phone = awaiting
+        if state.on_phone_mode is not None:
+            state.on_phone_mode(awaiting)
+    if not awaiting:
+        state.phone_digits = ""
+
+
+def collect_phone_digits(state: SessionState, text: str) -> str | None:
+    """Join a phone number the patient gave across several messages, in code.
+
+    Speech recognition often splits a number ("99999" ... "99999"). While a number is being
+    collected, digits from each patient message are appended (once per turn), and the model
+    is told exactly what has been heard so far.
+    """
+    if state.digits_turn == state.turn:
+        return state.phone_note
+    state.digits_turn = state.turn
+    digits = spoken_digits(text)
+    if not (state.awaiting_phone and digits):
+        state.phone_note = None
+        if not digits:
+            state.phone_digits = ""
+        return None
+    state.phone_digits = (state.phone_digits + digits)[-15:]
+    have = state.phone_digits
+    phone = normalize_phone(have, state.clinic.country)
+    if phone:
+        state.phone_note = (
+            f"The patient's complete mobile number, joined from their messages, is {phone}. Use exactly "
+            "this as the phone number; do not ask for it again."
+        )
+    elif state.clinic.country == "IN" and len(have) < 10:
+        grouped = " ".join(have[i:i + 5] for i in range(0, len(have), 5))
+        state.phone_note = (
+            f"Mobile digits heard so far, joined from the patient's messages: {grouped} ({len(have)} of 10). "
+            f"Ask only for the remaining {10 - len(have)} digits; do not ask them to repeat the whole number."
+        )
+    else:
+        state.phone_digits = ""
+        state.phone_note = (
+            "The digits heard do not form a valid mobile number. Ask the patient to say the full number again, "
+            "slowly."
+        )
+    return state.phone_note
 
 
 class GraphState(TypedDict):
@@ -672,6 +740,8 @@ def build_graph(model: BaseChatModel, state: SessionState):
                     "was changed. Tell them it has not been done, and ask what they would like instead. "
                     "Do not prepare it again unless they ask for it again."
                 ))
+            if note := collect_phone_digits(state, last_patient.text):
+                messages.append(SystemMessage(note))
         full = None
         async for chunk in bound.astream(messages):
             if isinstance(chunk.content, str) and chunk.content:
@@ -682,6 +752,9 @@ def build_graph(model: BaseChatModel, state: SessionState):
         for call in full.tool_calls:
             args = {k: v for k, v in call["args"].items() if k not in _PRIVATE_ARGS}
             logger.info("tool call %s %s", call["name"], args)
+        if not full.tool_calls:
+            # Wait longer for the patient's next turn while they read out a number.
+            set_awaiting_phone(state, asks_for_phone(full.text))
         return {"messages": [AIMessage(content=full.content, tool_calls=full.tool_calls, id=full.id)]}
 
     graph = StateGraph(GraphState)

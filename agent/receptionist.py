@@ -37,6 +37,12 @@ GREETING = (
     "{hindi}Keep it short."
 )
 HINDI_OFFER = "Then add one short sentence in Hindi, in Devanagari script, saying they can also speak Hindi. "
+# Sarvam transcripts can land after the default 0.5 s endpoint, so normal turns wait 1.2 s.
+# While the patient reads out a phone number the agent waits 2.5 s, so pauses between digit
+# groups do not split the number into separate turns.
+NORMAL_ENDPOINTING = {"min_delay": 1.2, "max_delay": 4.0}
+PHONE_ENDPOINTING = {"min_delay": 2.5, "max_delay": 6.0}
+
 # Silence handling: after USER_AWAY_SECONDS without speech the agent checks in once; if the
 # patient is still silent after that, it says goodbye and hangs up.
 USER_AWAY_SECONDS = 20
@@ -142,9 +148,7 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=ctx.proc.userdata["vad"],
         stt=sarvam.STT(language="unknown", model="saaras:v4"),
         tts=sarvam.TTS(target_language_code=clinic.voice_language, model="bulbul:v3", speaker="priya"),
-        # Sarvam transcripts can land after the default 0.5s endpoint, and patients pause while
-        # reading out phone numbers; waiting longer stops the agent cutting them off.
-        turn_handling={"endpointing": {"min_delay": 1.2, "max_delay": 4.0}},
+        turn_handling={"endpointing": NORMAL_ENDPOINTING},
         user_away_timeout=USER_AWAY_SECONDS,
     )
 
@@ -159,6 +163,12 @@ async def entrypoint(ctx: JobContext) -> None:
         await handle.wait_for_playout()
         session.shutdown()
         return
+
+    def phone_mode(on: bool) -> None:
+        # People pause between digit groups; a short endpoint splits the number into pieces.
+        session.update_options(endpointing_opts=PHONE_ENDPOINTING if on else NORMAL_ENDPOINTING)
+
+    state.on_phone_mode = phone_mode
 
     ended = False
 
