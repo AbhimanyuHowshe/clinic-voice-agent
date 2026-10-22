@@ -32,7 +32,7 @@ def tools_by_name(state):
 
 BOOK_ARGS = lambda: {  # noqa: E731
     "doctor": "Sharma", "date": next_open_day().isoformat(), "time": "09:15",
-    "patient_name": "Rahul Verma", "patient_phone": "98765 43210",
+    "patient_name": "Rahul Verma", "doctor": "Sharma", "patient_phone": "98765 43210",
 }
 
 
@@ -253,11 +253,11 @@ async def test_cancel_finds_by_phone_and_needs_confirmation():
     tools = tools_by_name(state)
     assert "find_appointments" in await tools["prepare_cancellation"].ainvoke({"appointment_number": 1})
 
-    wrong = await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "patient_phone": "9999999999", "purpose": "check"})
+    wrong = await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "doctor": "Sharma", "patient_phone": "9999999999", "purpose": "check"})
     assert "No upcoming appointments" in wrong
     assert "find_appointments" in await tools["prepare_cancellation"].ainvoke({"appointment_number": 1})
 
-    found = await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "patient_phone": "+91 98765 43210", "purpose": "check"})
+    found = await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "doctor": "Sharma", "patient_phone": "+91 98765 43210", "purpose": "check"})
     assert "One upcoming appointment" in found and "Dr. Anjali Sharma" in found
     assert "from 1 to 1" in await tools["prepare_cancellation"].ainvoke({"appointment_number": 2})
     assert state.pending is None
@@ -275,7 +275,7 @@ async def test_find_for_cancel_with_one_appointment_holds_it():
     state = make_state(repo)
     tools = tools_by_name(state)
     state.turn, state.last_answer = 1, "yes"
-    out = await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "patient_phone": "9876543210", "purpose": "cancel"})
+    out = await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "doctor": "Sharma", "patient_phone": "9876543210", "purpose": "cancel"})
     assert "NOT cancelled" in out and state.pending.kind == "cancel" and state.pending.prepared_turn == 1
     state.turn, state.last_answer = 2, "yes"
     assert (await tools["confirm_pending_action"].ainvoke({})).startswith("CANCELLED")
@@ -287,7 +287,7 @@ async def test_reschedule_to_free_slot():
     state = make_state(repo)
     tools = tools_by_name(state)
     day = next_open_day().isoformat()
-    await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "patient_phone": "9876543210", "purpose": "reschedule"})
+    await tools["find_appointments"].ainvoke({"patient_name": "Rahul Verma", "doctor": "Sharma", "patient_phone": "9876543210", "purpose": "reschedule"})
     held = await tools["prepare_reschedule"].ainvoke({"appointment_number": 1, "new_date": day, "new_time": "09:30"})
     assert "NOT changed" in held
     state.turn, state.last_answer = 1, "yes"
@@ -504,9 +504,9 @@ async def test_replay_of_split_number_call():
     state = make_state(repo)
     model = ScriptedChatModel(replies=[
         AIMessage(content="Please tell me your mobile number."),
-        tool_call("find_appointments", {"patient_name": "Radha Krishna", "patient_phone": "triple 9 999 999", "purpose": "cancel"}, "c1"),
+        tool_call("find_appointments", {"patient_name": "Radha Krishna", "doctor": "Anjali Sharma", "patient_phone": "triple 9 999 999", "purpose": "cancel"}, "c1"),
         AIMessage(content="I have 9 9 9, 9 9 9, 9 9 9. Please tell me the last digit."),
-        tool_call("find_appointments", {"patient_name": "Radha Krishna", "patient_phone": "9", "purpose": "cancel"}, "c2"),
+        tool_call("find_appointments", {"patient_name": "Radha Krishna", "doctor": "Anjali Sharma", "patient_phone": "9", "purpose": "cancel"}, "c2"),
         AIMessage(content="No upcoming appointments for that number."),
     ], seen=[])
     graph = build_graph(model, state)
@@ -542,9 +542,9 @@ async def test_find_appointments_requires_a_name():
     state = make_state(repo)
     find = tools_by_name(state)["find_appointments"]
     for name in ["", " ", "unknown"]:
-        out = await find.ainvoke({"patient_name": name, "patient_phone": "9876543210", "purpose": "cancel"})
+        out = await find.ainvoke({"patient_name": name, "doctor": "Sharma", "patient_phone": "9876543210", "purpose": "cancel"})
         assert "name first" in out and state.pending is None and state.found == []
-    out = await find.ainvoke({"patient_name": "Rahul", "patient_phone": "9876543210", "purpose": "cancel"})
+    out = await find.ainvoke({"patient_name": "Rahul", "doctor": "Sharma", "patient_phone": "9876543210", "purpose": "cancel"})
     assert "NOT cancelled" in out and state.caller_name == "Rahul"
 
 
@@ -553,7 +553,7 @@ async def test_re_finding_after_yes_says_confirm_now():
     await book_one(repo)
     state = make_state(repo)
     find = tools_by_name(state)["find_appointments"]
-    args = {"patient_name": "Rahul", "patient_phone": "9876543210", "purpose": "cancel"}
+    args = {"patient_name": "Rahul", "doctor": "Sharma", "patient_phone": "9876543210", "purpose": "cancel"}
     state.turn = 1
     assert "NOT cancelled" in await find.ainvoke(args)
     state.turn, state.last_answer = 2, "yes"  # "Yes, cancel it."; the model looks it up again
@@ -684,3 +684,21 @@ async def test_explicit_hindi_request():
 async def test_mentioning_english_is_not_a_request():
     langs = await run_turns(["मुझे कल डॉक्टर से मिलना है", "I studied English literature at college"])
     assert langs == ["Hindi", "Hindi"]
+
+
+
+async def test_find_appointments_requires_which_doctor():
+    repo = FakeRepo()
+    await book_one(repo)  # with Dr. Sharma
+    state = make_state(repo)
+    find = tools_by_name(state)["find_appointments"]
+    base = {"patient_name": "Rahul", "patient_phone": "9876543210", "purpose": "cancel"}
+    asked = await find.ainvoke({**base, "doctor": ""})
+    assert "which doctor" in asked and "Dr. Rohan Mehta" in asked and state.pending is None
+    wrong = await find.ainvoke({**base, "doctor": "Mehta"})
+    assert "No upcoming appointment with Dr. Rohan Mehta" in wrong and state.pending is None
+    right = await find.ainvoke({**base, "doctor": "Sharma"})
+    assert "NOT cancelled" in right
+    state.pending = None
+    unsure = await find.ainvoke({**base, "doctor": "any"})  # caller doesn't remember
+    assert "NOT cancelled" in unsure

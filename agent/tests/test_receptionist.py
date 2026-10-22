@@ -139,9 +139,9 @@ async def test_cancel_by_phone_number_after_yes():
             user_input="I need to cancel my appointment. My phone number is 9876543210."
         )
         await result.expect.contains_message(role="assistant").judge(
-            judge_llm, intent="Asks for the caller's name. Does not say that anything has already been cancelled."
+            judge_llm, intent="Asks for the caller's name. " "Mentioning that the caller wants to cancel is fine; only a claim that the cancellation is already DONE fails."
         )
-        result = await session.run(user_input="My name is Rahul Verma.")
+        result = await session.run(user_input="My name is Rahul Verma. It is with Dr. Sharma.")
         await result.expect.contains_message(role="assistant").judge(
             judge_llm,
             intent="Mentions the appointment with Dr. Sharma at 9:15 AM and asks whether to cancel it "
@@ -232,3 +232,46 @@ async def test_taken_time_is_refused_with_alternatives():
             intent="Says 9:15 AM is not available and offers other times such as 9:00 AM or 9:30 AM. "
             "Does not accept or note 9:15 AM.",
         )
+
+
+async def test_booking_asks_which_doctor():
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, make_agent())
+        result = await session.run(user_input="Hi, my name is Rahul. I want to book an appointment for tomorrow.")
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Asks which doctor or specialty the patient wants (may name the doctors). Does not pick a "
+            "doctor itself and does not offer specific time slots yet.",
+        )
+
+
+async def test_cancel_asks_which_doctor():
+    repo = FakeRepo()
+    day = next_open_day()
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo
+
+    start = datetime.combine(day, time(9, 15), tzinfo=ZoneInfo(CLINIC.timezone))
+    await repo.book(CLINIC.id, SHARMA.id, start, "Rahul Verma", "9876543210", "seed-key-3")
+    async with (
+        sarvam.LLM(model=receptionist.LLM_MODEL) as judge_llm,
+        AgentSession() as session,
+    ):
+        await start_after_greeting(session, make_agent(repo))
+        result = await session.run(user_input="I want to cancel my appointment. My name is Rahul Verma.")
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Asks which doctor the appointment is with, or asks for the mobile number."
+            " Mentioning that the caller wants to cancel is fine; only a claim that the cancellation is already DONE fails.",
+        )
+        result = await session.run(user_input="My number is 9876543210.")
+        await result.expect.contains_message(role="assistant").judge(
+            judge_llm,
+            intent="Asks which doctor the appointment is with, or (if the doctor was already asked) reads back "
+            "the appointment with Dr. Sharma and asks whether to cancel it."
+            " Mentioning that the caller wants to cancel is fine; only a claim that the cancellation is already DONE fails.",
+        )
+        assert repo.appointments["100000"]["status"] == "booked"

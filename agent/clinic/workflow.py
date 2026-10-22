@@ -173,6 +173,9 @@ def spoken_digits(raw: str) -> str:
     return "".join(out)
 
 
+# Placeholder values the model sometimes passes instead of asking the caller.
+_UNKNOWN_ANSWERS = {"", "unknown", "patient", "caller", "none", "n/a", "na", "not given", "any"}
+
 # Short words that sound close to digit words but are never digits.
 _NOT_DIGITS = {
     "the", "they", "then", "there", "to", "for", "and", "is", "it", "its", "this", "that", "yes",
@@ -628,24 +631,50 @@ def build_tools(state: SessionState) -> list[BaseTool]:
 
     @tool
     async def find_appointments(
-        patient_name: str, patient_phone: str, purpose: Literal["cancel", "reschedule", "check"]
+        patient_name: str,
+        doctor: str,
+        patient_phone: str,
+        purpose: Literal["cancel", "reschedule", "check"],
     ) -> str:
-        """List the patient's upcoming appointments, found by the phone number used to book.
+        """List the patient's upcoming appointments with a doctor, found by the booking phone number.
 
         Args:
             patient_name: The caller's name, as they said it. Ask for it first if you don't have it.
+            doctor: Which doctor (or specialty) the appointment is with, as the caller said it. Ask if
+                you don't know. Use "any" only if the caller says they don't remember.
             patient_phone: The mobile number used when booking, digits only.
             purpose: What the patient wants to do: "cancel", "reschedule", or "check".
         """
         name = (patient_name or "").strip()
-        if len(name) < 2 or name.lower() in {"unknown", "patient", "caller", "none", "n/a"}:
+        if len(name) < 2 or name.lower() in _UNKNOWN_ANSWERS:
             # Asked in code so the model cannot skip it (real call: cancel without a name).
             return "Ask the caller for their name first, then call find_appointments again."
         state.caller_name = name[:120]
+        wanted = (doctor or "").strip()
+        if not wanted or wanted.lower() in _UNKNOWN_ANSWERS - {"any"}:
+            # Also asked in code (real call: cancel without asking which doctor).
+            options = ", ".join(d.name for d in state.doctors)
+            return (
+                f"Ask the caller which doctor the appointment is with ({options}), then call "
+                "find_appointments again."
+            )
+        doc_filter = None
+        if wanted.lower() != "any":
+            doc_filter = resolve_doctor(wanted)
+            if isinstance(doc_filter, str):
+                return doc_filter
         phone = resolve_phone(patient_phone)
         if phone is None:
             return phone_problem(state.phone_digits or patient_phone, state.clinic.country)
         found = await repo.find_by_phone(state.clinic.id, phone)
+        if doc_filter is not None:
+            others = [a for a in found if a["doctor_id"] != doc_filter.id]
+            found = [a for a in found if a["doctor_id"] == doc_filter.id]
+            if not found and others:
+                return (
+                    f"No upcoming appointment with {doc_filter.name} for this number. Ask the caller to "
+                    "check which doctor it was with."
+                )
         state.found_phone, state.found = phone, list(found)
         if not found:
             return "No upcoming appointments for that phone number. Ask the patient to check the number used to book."
@@ -977,8 +1006,9 @@ If a question is not answered above, say you don't have that information and off
 staff call back (escalate_to_staff). Never guess timings, fees, doctors, or policies.
 
 Booking an appointment (one question at a time):
-1. Find out which doctor or specialty, and the preferred day. Convert words like "tomorrow"
-   to a YYYY-MM-DD date using today's date above.
+1. Ask which doctor or specialty they want, unless they already said it, and name the doctors
+   if they are unsure. Never choose a doctor for the patient. Then ask for the preferred day.
+   Convert words like "tomorrow" to a YYYY-MM-DD date using today's date above.
 2. Call check_availability. Offer only the times it returns. Never invent a time. Whenever the
    patient names a time, call check_availability with that time BEFORE replying. If it says NO,
    tell them that time is not available and offer the times it suggests. Never say a time is
@@ -999,7 +1029,8 @@ Booking an appointment (one question at a time):
    is booked only if it returns BOOKED.
 
 Cancelling or moving an appointment: first ask for the caller's name (if you don't have it yet)
-and address them by it, then ask for the 10-digit mobile number used to book, slowly (same
+and address them by it, then which doctor the appointment is with (unless they said it), then
+the 10-digit mobile number used to book, slowly (same
 wording as above), and call
 find_appointments with the purpose. If there is more than one, ask which one. Ask for confirmation only once:
 the read-back of the change also confirms which appointment it is. For a new time, call
