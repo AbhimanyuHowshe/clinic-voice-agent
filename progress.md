@@ -4,11 +4,17 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Current Status
 
-- **Current phase:** Phases 2–6 built and tested (2026-10-22); website voice agent only, the phone line comes later.
-- **Next tasks:**
-  1. Create a staff login (`scripts/create_staff.py`), then click through the dashboard locally.
-  2. Voice test through the web app (`npm run dev` + `lk agent dev`): book, reschedule, cancel, emergency OFF mid-call.
-  3. Deploy: `lk cloud auth` + `lk agent create`, then Vercel.
+- **Current phase:** Phases 2–6 built and voice-tested by the user through the website (2026-10-22). Scope for now: website voice agent only; the phone line comes later. Demo stays on LiveKit + Sarvam + LangGraph (user decision, 2026-10-22).
+- **Next tasks (resume 2026-10-23):**
+  1. Restart locally: `cd agent && uv run python receptionist.py dev` and `cd dashboard && npm run dev` (http://localhost:8000). Free some memory first: the laptop had only 0.1–0.4 GB free on 2026-10-22, and Claude Code stopped both processes once.
+  2. Another voice test of the latest fixes: name → doctor → "10-digit number, slowly"; "nau nau…" heard as "no no…"; a taken slot refused; change of mind; ending the call; the dashboard updating live.
+  3. Latency improvements offered but **not started** (user to decide):
+     - Move Supabase to Mumbai (needs the user to create the project).
+     - Drop the extra availability call before confirm (~0.4 s).
+     - A filler phrase while tools run.
+     - Tune endpointing 1.2 s → ~0.9 s.
+     - Try Bulbul v4 Flash.
+  4. Deploy: `lk cloud auth` + `lk agent create`, then Vercel.
 
 ## Completed
 
@@ -123,20 +129,86 @@ Record only verified results here. Do not mark an item done until it has actuall
   - Database `RUN_DB_TESTS=1 uv run pytest tests/test_db.py`: **9 passed** against the real project. Covered: slots only from consulting hours; idempotent booking; **6 simultaneous bookings for one slot → exactly 1 succeeds**; invented/off-grid times and bad phones rejected; phone-verified cancel and reschedule; availability precedence including an overnight window, a pause, a holiday and manual OFF; booking refused when OFF; settings changes audited; appointment audit rows hold no patient details.
   - Live: **9 passed, twice in a row**. This adds a cancel-by-phone conversation (nothing cancelled before "yes"; cancelled after).
 
+### 2026-10-22 (afternoon): Voice testing through the website, fixes from real calls
+All fixes below came from the user's own calls on http://localhost:8000. Logs were read with patient names and numbers redacted. Commits `0aa9b3f` to `fb17260`.
+
+**Times and slots**
+- **Bug: slots were spoken in UTC** ("3:30 AM" for 9:00 AM IST). The real database returns UTC instants, and the fake test repo returned clinic time, so tests missed it. Fixed: slots are converted to clinic time, and the fake repo now returns UTC.
+- "10 AM", "5:30 PM" and "9.30" are accepted (previously only 24-hour HH:MM).
+- Free times are listed one by one (up to 8) or as "every 15 minutes from 9:00 AM to 12:45 PM, and from 5:00 PM to 7:45 PM", so a lunch break is not mistaken for free time.
+- `check_availability` takes an optional time and answers YES/NO from the database with the two nearest free times. Real call: the agent said it had "noted" an already-booked 5 PM. No double booking happened; the database blocked it.
+
+**Language**
+- The reply language is sticky, and Hindi replies are written in Devanagari (the TTS reads it better).
+- The greeting is English plus one Hindi sentence offering Hindi.
+- The language changes only when the patient asks ("English please", "English mein baat karo", "हिंदी में बोलिए", or just "English") or speaks the other language in two clear messages in a row. Digits, "no/now", and yes/no and filler words never switch it.
+
+**Confirmations (enforced in code)**
+- A clear "no" discards the held action; confirm needs a clear yes in the latest message. Real call: "No, please cancel" led the model to hold the booking again. Nothing was booked.
+- Re-preparing an identical action keeps the original hold. After a yes, a re-lookup says "confirm now" instead of asking again.
+
+**Phone numbers**
+- Spoken numbers are converted in code: digits, double/triple, English and Hindi digit words, and Devanagari numerals.
+- Accent and STT variants are accepted ("Naini" = 9), with a close-match fallback for short replies while collecting.
+- While a number is asked for or partly given, every "no"/"now"/"नो" is a 9, even a single one at the start. Real call: "nau nau nau" was transcribed as "No, no, no."
+- Indian numbers must be exactly 10 digits. Digits given across several messages are joined in code. The agent asks only for the missing digits.
+- Endpointing is 2.5 s / 4 s while collecting a number, and 1.2 s / 4 s otherwise.
+- The read-back is grouped 3-3-4 ("9 9 9, 9 9 9, 9 9 9 9"), with TTS pace 0.9.
+- The agent asks for "your 10-digit mobile number, slowly".
+- Limit: STT still drops a digit in runs of one repeated digit (e.g. 9999999999); the agent then asks for the missing digit.
+
+**Conversation flow**
+- Cancel or move: the order is name → which doctor → phone. `find_appointments` requires the name and the doctor (or "any"), and filters by doctor.
+- Booking: the agent asks which doctor or specialty and never picks one itself.
+- `end_call` tool: the agent asks "anything else?" and hangs up after a clear goodbye (not while a change is unconfirmed).
+- Silence: after 20 s it asks "are you still there?"; after 20 s more it says goodbye and hangs up.
+- Tool calls and results are logged with patient names and phone numbers redacted.
+
+**Dashboard**
+- The user's Supabase-created login was not linked to a clinic, so the dashboard showed the bare "No clinic access" page. Linked it as admin of Sanjeevani.
+- Overview shows the next 7 days; Appointments defaults to all upcoming (a booking for tomorrow was invisible before).
+- **Live updates:** migration `…06_realtime.sql` adds appointments, call_logs, agent_settings and temporary_pauses to `supabase_realtime`. A `LiveRefresh` component refreshes the page on changes, with a 30 s fallback.
+- Verified with a temporary staff login: own-clinic events received, the other clinic's not. **Not yet watched in a real browser.**
+- RLS verified with a temporary staff login (deleted afterwards): staff see only their clinic's appointments, cannot read the audit log or flip agent settings, and anon is blocked.
+
+**Other**
+- The web app moved to port **8000** (`npm run dev` / `npm start`), because port 3000 is used by another local project.
+- `scripts/check_keys.py` tests each credential and prints only OK/FAIL. **All 5 OK** after the user fixed the keys.
+- Database tests `RUN_DB_TESTS=1 uv run pytest tests/test_db.py`: **9 passed**. Covered: 6 concurrent bookings → 1 succeeds; idempotency; schedule, pause, holiday and overnight boundaries; phone-verified cancel/reschedule; audit without patient details.
+- A shell heredoc had silently turned regex `\b` and `\1` into control characters. Fixed, and all agent files were scanned clean. Use Write/Edit or script files, not heredocs, for code containing backslashes.
+
+**Tests at end of day:** offline **128 passed**. The live Sarvam suite has 16 tests. Every live test passed at least once after its last related change, but they were run in subsets: Sarvam rate limits (429) hit when the full suite was repeated back to back. Some live failures were the LLM judge misreading correct replies; the intents were reworded.
+
+**Measured latency** (from the user's calls and timing scripts):
+- Wait after the patient stops speaking: median 1.2 s (a setting; up to 4 s).
+- Sarvam LLM first token: ≈ 120 ms.
+- Supabase RPC: ≈ 400 ms each, because the project is in **Seoul** (`ap-northeast-2`, confirmed with `supabase projects list`).
+- Turns with a database tool call: +≈ 1.5 s.
+
+**Pricing estimate** (not a bill; check sarvam.ai/api-pricing):
+- Sarvam STT ₹0.49/min, Bulbul v3 TTS ₹3 per 1,000 characters, sarvam-105b ≈ ₹15/1M input tokens (third-party figure).
+- LiveKit Build is free up to 1,000 agent-min/month; Ship is $50/month plus $0.01/min.
+- Total ≈ ₹1.8 per call-minute in the demo, ≈ ₹2.7 after the free LiveKit minutes.
+
+**Questions answered, no changes made** (user asked not to change the plan):
+- Sarvam has no single speech-to-speech model; its voice stack is STT → LLM → TTS.
+- Sarvam Conversations (managed platform, from ≈ ₹3/min with telephony) could use this dashboard and database through webhooks. It would replace the LangGraph code-level guards unless they are rebuilt in webhooks. An untested comparison was given.
+- Dropping LiveKit: possible via Sarvam's platform or a custom transport. Not recommended for the demo.
+
 ## In Progress
 
-- Waiting on a staff login (needs a password the user chooses) to test the dashboard against real data.
+- Nothing running unattended. At the end of 2026-10-22 the agent and the website were running locally for the user's tests.
 
 ## Pending User Actions
 
-- **Create a staff login:** `cd agent && uv run python scripts/create_staff.py` (hidden password prompt).
-- Keys: all pass `scripts/check_keys.py` (2026-10-22). Rerun it after any change.
+- **Free memory before testing:** the laptop has 7.7 GB, with 0.1–0.4 GB free while VS Code, Chrome and the `Govind_dentist` dev server were open.
+- **Decide on latency work** (see Current Status). Moving Supabase to Mumbai needs a new project created by the user.
 - **Rotate the LiveKit API key** (exposed in a Claude session on 2026-10-21).
 - **Run `lk cloud auth`** (opens a browser) for `lk agent dev/create/deploy`.
 - **Run `vercel login`**, or import the repo in the Vercel dashboard (Root Directory `dashboard`).
 - **Push to GitHub:** commits on `main` are local only. Waiting for the user's go-ahead.
-- **Confirm the Supabase region** (Mumbai vs Seoul, recorded inconsistently).
-- Optional: upgrade local Node to 22 (supabase-js 2.118 warns on Node 20; the build still passes).
+- Optional: upgrade local Node to 22 (supabase-js 2.118 warns on Node 20; Node 20 also lacks a built-in WebSocket for scripts).
+- Done 2026-10-22: keys fixed (all 5 OK); staff login created (via the Supabase dashboard, linked to Sanjeevani as admin by Claude).
 
 ## Open Questions
 
@@ -144,11 +216,12 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Not Yet Done
 
-- Dashboard not clicked through with a real staff login. No automated UI or RLS tests yet: the RLS policies are written but untested from an `authenticated` session.
-- Voice: no test through the web app yet. Interruptions, silence and timeouts are untested. Hindi and Hinglish are only tested in text.
+- Live dashboard updates not watched in a real browser yet (verified by script only).
+- Voice: interruptions are not specifically tested. The silence timeout and hang-up were only tried by the user, not by automated tests. Live tests run in text mode, not audio.
 - Deployment: the agent image is not built; nothing is on LiveKit Cloud or Vercel yet.
 - Voicemail fallback is not implemented (it plays the closed message). There is no live call transfer: `transfer` mode speaks the staff number.
-- A turn-detector model is not enabled. No non-Indian TTS voice for the Australian clinic yet.
+- No "type your number" fallback on the call screen (offered; the user chose only the ask wording).
+- No non-Indian TTS voice for the Australian clinic yet.
 - `/api/token` has no rate limit: anyone with the URL can start sessions, up to the LiveKit plan caps.
 - Phase 9 (telephony) and Phase 10 (Google Sheets) are not started.
 
@@ -198,14 +271,18 @@ Clinic time zones now come from the `clinics` table (`CLINIC_TIMEZONE` was remov
 
 ## Known Limitations
 
-- The Supabase project is in `ap-northeast-2` (Seoul). Since the project became a demo for both India and Australia (2026-10-21), it stays there: Seoul sits between the two. A real client deployment would get its own project in the client's region. The migrations are in the repo, so this means re-linking and running `supabase db push`.
+- The Supabase project is in `ap-northeast-2` (Seoul; confirmed 2026-10-22). Each RPC from India takes ≈ 400 ms, the largest network cost in booking turns. It was kept for the India and Australia demo; moving to Mumbai is the main latency option. A real client deployment would get its own project in the client's region. The migrations are in the repo, so this means re-linking and running `supabase db push`.
 - Sarvam STT and TTS support only Indian (`*-IN`) language codes, with no `en-AU`. Australian speech will be transcribed as `en-IN`, which needs testing for accuracy. The live API rejects `amelia` (and presumably `sophia`) and offers only Indian voices, so the Australian clinic needs a different TTS provider. See Scope in plan.md.
 
 - `SARVAM_API_KEY` and `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are confirmed working with the installed SDKs (smoke test and worker registration, 2026-10-21). The Supabase and dashboard variable names are still provisional.
 - `sarvam-105b` is unusable for voice (about 8 s to first token, empty replies at small `max_tokens`). Use `sarvam-105b-conversations`.
 - STT returns Hinglish speech in Devanagari script (`transcribe` mode). `codemix` and `translit` modes are untested.
 - In dev mode the first call waits about 2 s for a worker process (no warmed process). VAD ran 0.5 s slower than realtime once at session start on the development laptop.
-- With no clinic data, the LLM invents facts (opening hours) unless the prompt forbids it. FAQ answers must be grounded in `clinic_faqs` (Phase 2/3).
+- With no clinic data, the LLM invents facts (opening hours) unless the prompt forbids it. FAQ answers are now grounded in `clinic_faqs`.
+- Sarvam STT is weakest on numbers made of one repeated digit (drops a digit) and on accented digit words ("Naini"). Code compensates partly; the read-back is the safety net.
+- Sarvam LLM rate limits (HTTP 429) were hit when running the full live suite twice in a row. A 429 during a real call would stall the agent's reply.
+- Changing the Sarvam STT language mid-call reconnects its WebSocket (could drop the first words), so the STT stays on auto-detect.
+- The local dev setup is memory-heavy for this laptop. Claude Code stopped the agent and website once on 2026-10-22 because memory ran out.
 
 ## Secrets Handling
 
