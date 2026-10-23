@@ -32,7 +32,7 @@ export default async function Overview() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="card flex flex-col gap-4">
+      <section className="card flex flex-col gap-4 border-l-4 border-l-teal-500">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold">AI receptionist</h1>
@@ -68,15 +68,18 @@ export default async function Overview() {
         </p>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2">
-        <div className="card">
-          <p className="text-sm text-neutral-500">Booked today</p>
-          <p className="text-3xl font-semibold">{booked}</p>
-        </div>
-        <Link href="/dashboard/calls" className="card hover:bg-neutral-50 dark:hover:bg-neutral-900">
-          <p className="text-sm text-neutral-500">Call-backs waiting</p>
-          <p className="text-3xl font-semibold">{calls?.length ?? 0}</p>
-        </Link>
+      <section className="grid gap-4 sm:grid-cols-3">
+        {[
+          { label: "Booked today", value: booked, accent: "from-teal-500 to-cyan-500", href: "/dashboard/appointments" },
+          { label: "Next 7 days", value: rows.length, accent: "from-indigo-500 to-violet-500", href: "/dashboard/appointments" },
+          { label: "Call-backs waiting", value: calls?.length ?? 0, accent: "from-amber-500 to-orange-500", href: "/dashboard/calls" },
+        ].map((s) => (
+          <Link key={s.label} href={s.href} className="card relative overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
+            <span className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${s.accent}`} />
+            <p className="text-sm text-slate-500">{s.label}</p>
+            <p className="mt-1 text-4xl font-bold tracking-tight">{s.value}</p>
+          </Link>
+        ))}
       </section>
 
       <section className="flex flex-col gap-2">

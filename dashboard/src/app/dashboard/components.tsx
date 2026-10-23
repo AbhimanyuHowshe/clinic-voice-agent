@@ -41,10 +41,20 @@ export type AppointmentRow = {
   doctors: { name: string } | null;
 };
 
+const STATUS_STYLE: Record<string, string> = {
+  booked: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300",
+  completed: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  no_show: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  cancelled: "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+};
+
 export function AppointmentsTable({ rows, timeZone }: { rows: AppointmentRow[]; timeZone: string }) {
-  if (rows.length === 0) return <p className="text-sm text-neutral-500">No appointments.</p>;
+  if (rows.length === 0)
+    return (
+      <div className="card text-center text-sm text-slate-500">No appointments.</div>
+    );
   return (
-    <div className="overflow-x-auto">
+    <div className="card overflow-x-auto p-0">
       <table className="table">
         <thead>
           <tr>
@@ -62,12 +72,14 @@ export function AppointmentsTable({ rows, timeZone }: { rows: AppointmentRow[]; 
             <tr key={a.id}>
               <td className="whitespace-nowrap">{formatDateTime(a.starts_at, timeZone)}</td>
               <td>{a.doctors?.name}</td>
-              <td>{a.patient_name}</td>
+              <td className="font-medium">{a.patient_name}</td>
               <td className="whitespace-nowrap">{a.patient_phone}</td>
-              <td className="font-mono">{a.reference}</td>
-              <td>
-                {a.status}
-                <span className="ml-1 text-xs text-neutral-500">({a.source})</span>
+              <td className="font-mono text-xs text-slate-500">{a.reference}</td>
+              <td className="whitespace-nowrap">
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[a.status] ?? STATUS_STYLE.cancelled}`}>
+                  {a.status.replace("_", "-")}
+                </span>
+                <span className="ml-1.5 text-xs text-slate-400">{a.source}</span>
               </td>
               <td className="whitespace-nowrap">
                 {a.status === "booked" && (

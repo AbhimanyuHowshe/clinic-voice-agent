@@ -4,17 +4,18 @@ Record only verified results here. Do not mark an item done until it has actuall
 
 ## Current Status
 
-- **Current phase:** Phases 2–6 built and voice-tested by the user through the website (2026-10-22). Scope for now: website voice agent only; the phone line comes later. Demo stays on LiveKit + Sarvam + LangGraph (user decision, 2026-10-22).
-- **Next tasks (resume 2026-10-23):**
-  1. Restart locally: `cd agent && uv run python receptionist.py dev` and `cd dashboard && npm run dev` (http://localhost:8000). Free some memory first: the laptop had only 0.1–0.4 GB free on 2026-10-22, and Claude Code stopped both processes once.
-  2. Another voice test of the latest fixes: name → doctor → "10-digit number, slowly"; "nau nau…" heard as "no no…"; a taken slot refused; change of mind; ending the call; the dashboard updating live.
+- **Current phase:** Online demo. Agent on LiveKit Cloud (Mumbai), web app on Vercel at https://clinic-voiceagent.vercel.app (2026-10-23). Scope: website voice agent only; the phone line comes later. Demo stays on LiveKit + Sarvam + LangGraph (user decision, 2026-10-22).
+- **Next tasks:**
+  1. Check the new dashboard look and the doctor cards on Vercel, logged in (not yet seen by Claude; the local server was stopped for low memory before the user checked it).
+  2. More real calls on the live site, on laptop and phone (Chrome / Safari), including a booking that shows on the dashboard.
   3. Latency improvements offered but **not started** (user to decide):
      - Move Supabase to Mumbai (needs the user to create the project).
      - Drop the extra availability call before confirm (~0.4 s).
      - A filler phrase while tools run.
      - Tune endpointing 1.2 s → ~0.9 s.
      - Try Bulbul v4 Flash.
-  4. Deploy: agent is on LiveKit Cloud (2026-10-23, `ap-south` Mumbai, agent `CA_buFJVUxGVFc7`, worker registered). Vercel: waiting for the user's redeploy and link; then test a real call end to end.
+  4. Later: `DEMO_ACCESS_CODE` on Vercel before sharing widely (user: "we will do it later").
+  5. Phone line (Phase 9): the clinic keeps its own number and sets **call forwarding** once (busy / no answer) to an AI number from an Indian SIP provider. Needs KYC. When the agent is OFF, a forwarded call must not be told the clinic's own number; add a proper message or voicemail first.
 
 ## Completed
 
@@ -195,20 +196,34 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 - Sarvam Conversations (managed platform, from ≈ ₹3/min with telephony) could use this dashboard and database through webhooks. It would replace the LangGraph code-level guards unless they are rebuilt in webhooks. An untested comparison was given.
 - Dropping LiveKit: possible via Sarvam's platform or a custom transport. Not recommended for the demo.
 
+### 2026-10-23: Online launch; doctor cards; new dashboard look
+**Launch**
+- GitHub: `AbhimanyuHowshe/clinic-voice-agent` (pushed with the user's go-ahead).
+- Vercel blocked the first build: "Vulnerable version of Next.js detected" (CVE-2025-66478). Upgraded Next 15.5.4 → 15.5.28 and React 19.1.0 → 19.1.10 (`a4440a3`). Remaining `npm audit` items (bundled postcss, sharp) need Next 16; deferred.
+- Vercel: https://clinic-voiceagent.vercel.app, Root Directory `dashboard`, 5 env vars set by the user. No `DEMO_ACCESS_CODE` for now (user decision). Verified by Claude: home 200, `/dashboard` → `/login` (307), login 200, `/api/token` returns a token for `sanjeevani` pointing at the LiveKit Cloud URL, unknown clinic → 400.
+- LiveKit Cloud: the user ran `lk cloud auth` in their own PowerShell (it needs an interactive terminal). Deployed with `lk agent create --region ap-south --secrets-file .env --ignore-empty-secrets .` → agent `CA_buFJVUxGVFc7`, worker registered in "India South". `LIVEKIT_*` are injected by LiveKit Cloud and skipped from the secrets file. `agent/livekit.toml` (no secrets) committed (`d4eb132`).
+- **First real call on the cloud agent worked** (user, 2026-10-23): it checked Dr. Kavita Rao for Friday and correctly said no slots (she works Tue/Thu/Sat 11:00–15:00 in the seed data), offering Saturday 11:00. Database `available_slots` confirmed 0 for that day.
+
+**Dashboard**
+- Appointments page lists **every doctor** as a card: specialty, working days, a green "Today: 11:00–15:00" / red "Not working today" / grey "Not taking bookings" badge for the chosen day, and the number booked. Clicking a card (or the new doctor dropdown) filters the table. Added because the user read "0 appointments" as "free today".
+- New look across the dashboard: soft background, white cards with shadows, a sticky header with a logo mark, the active menu item underlined (`nav-links.tsx`), coloured status badges in tables, three stat cards on Overview, Inter font (`next/font/google`).
+- Checks: `tsc --noEmit` and `eslint` clean. **Not visually checked by Claude** (pages need the user's login).
+
+**Answered, no changes:** a phone line would not make calls smoother (8 kHz phone audio, extra hop); forwarding cost on Indian unlimited plans is usually nil, plus the SIP number's rent and per-minute fee (not verified).
+
 ## In Progress
 
-- Nothing running unattended. At the end of 2026-10-22 the agent and the website were running locally for the user's tests.
+- Nothing running locally. The agent runs on LiveKit Cloud; the web app on Vercel. The local dev server was stopped by Claude Code for low memory on 2026-10-23.
+- **Do not run the local agent while testing the live site**: both register with the same LiveKit project, so calls could go to the laptop.
 
 ## Pending User Actions
 
-- **Free memory before testing:** the laptop has 7.7 GB, with 0.1–0.4 GB free while VS Code, Chrome and the `Govind_dentist` dev server were open.
+- **Free memory before local testing:** the laptop has 7.7 GB, often with under 0.7 GB free.
 - **Decide on latency work** (see Current Status). Moving Supabase to Mumbai needs a new project created by the user.
-- **Rotate the LiveKit API key** (exposed in a Claude session on 2026-10-21).
-- Done 2026-10-23: `lk cloud auth` (run by the user in their own PowerShell).
-- **Run `vercel login`**, or import the repo in the Vercel dashboard (Root Directory `dashboard`).
-- **Push to GitHub:** commits on `main` are local only. Waiting for the user's go-ahead.
-- Optional: upgrade local Node to 22 (supabase-js 2.118 warns on Node 20; Node 20 also lacks a built-in WebSocket for scripts).
-- Done 2026-10-22: keys fixed (all 5 OK); staff login created (via the Supabase dashboard, linked to Sanjeevani as admin by Claude).
+- **Rotate the LiveKit API key** (exposed in a Claude session on 2026-10-21). After rotating, update Vercel's `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` (the cloud agent gets its own automatically).
+- Vercel Hobby is for non-commercial use; a paid client demo may need Pro.
+- Optional: upgrade local Node to 22 (supabase-js warns on Node 20).
+- Done 2026-10-23: `lk cloud auth`; GitHub push; Vercel import and env vars.
 
 ## Open Questions
 
@@ -218,7 +233,7 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 
 - Live dashboard updates not watched in a real browser yet (verified by script only).
 - Voice: interruptions are not specifically tested. The silence timeout and hang-up were only tried by the user, not by automated tests. Live tests run in text mode, not audio.
-- Deployment: agent deployed with `lk agent create --region ap-south --secrets-file .env --ignore-empty-secrets` (LIVEKIT_* are injected by LiveKit Cloud). Worker registered in "India South"; **no real call tested on it yet**. Update later with `lk agent deploy` from `agent/`. Vercel not yet verified.
+- Deployment: agent code changes need `lk agent deploy` from `agent/` (Vercel redeploys on every push to `main`). Only one real call tested on the cloud agent so far; phone browsers not yet tested.
 - Voicemail fallback is not implemented (it plays the closed message). There is no live call transfer: `transfer` mode speaks the staff number.
 - No "type your number" fallback on the call screen (offered; the user chose only the ask wording).
 - No non-Indian TTS voice for the Australian clinic yet.
