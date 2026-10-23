@@ -14,7 +14,7 @@ Record only verified results here. Do not mark an item done until it has actuall
      - A filler phrase while tools run.
      - Tune endpointing 1.2 s → ~0.9 s.
      - Try Bulbul v4 Flash.
-  4. Deploy: `lk cloud auth` + `lk agent create`, then Vercel.
+  4. Deploy: agent is on LiveKit Cloud (2026-10-23, `ap-south` Mumbai, agent `CA_buFJVUxGVFc7`, worker registered). Vercel: waiting for the user's redeploy and link; then test a real call end to end.
 
 ## Completed
 
@@ -204,7 +204,7 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 - **Free memory before testing:** the laptop has 7.7 GB, with 0.1–0.4 GB free while VS Code, Chrome and the `Govind_dentist` dev server were open.
 - **Decide on latency work** (see Current Status). Moving Supabase to Mumbai needs a new project created by the user.
 - **Rotate the LiveKit API key** (exposed in a Claude session on 2026-10-21).
-- **Run `lk cloud auth`** (opens a browser) for `lk agent dev/create/deploy`.
+- Done 2026-10-23: `lk cloud auth` (run by the user in their own PowerShell).
 - **Run `vercel login`**, or import the repo in the Vercel dashboard (Root Directory `dashboard`).
 - **Push to GitHub:** commits on `main` are local only. Waiting for the user's go-ahead.
 - Optional: upgrade local Node to 22 (supabase-js 2.118 warns on Node 20; Node 20 also lacks a built-in WebSocket for scripts).
@@ -218,7 +218,7 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 
 - Live dashboard updates not watched in a real browser yet (verified by script only).
 - Voice: interruptions are not specifically tested. The silence timeout and hang-up were only tried by the user, not by automated tests. Live tests run in text mode, not audio.
-- Deployment: the agent image is not built; nothing is on LiveKit Cloud or Vercel yet.
+- Deployment: agent deployed with `lk agent create --region ap-south --secrets-file .env --ignore-empty-secrets` (LIVEKIT_* are injected by LiveKit Cloud). Worker registered in "India South"; **no real call tested on it yet**. Update later with `lk agent deploy` from `agent/`. Vercel not yet verified.
 - Voicemail fallback is not implemented (it plays the closed message). There is no live call transfer: `transfer` mode speaks the staff number.
 - No "type your number" fallback on the call screen (offered; the user chose only the ask wording).
 - No non-Indian TTS voice for the Australian clinic yet.
