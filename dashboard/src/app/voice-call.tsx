@@ -8,7 +8,7 @@ import {
   RoomAudioRenderer,
   useVoiceAssistant,
 } from "@livekit/components-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DEMO_CLINICS, type ClinicSlug } from "@/lib/clinics";
 
 type Connection = { serverUrl: string; token: string };
@@ -39,11 +39,21 @@ function AgentStatus() {
   );
 }
 
-export function VoiceCall() {
+const CODE_KEY = "demo-access-code";
+
+export function VoiceCall({ needsCode }: { needsCode: boolean }) {
   const [clinic, setClinic] = useState<ClinicSlug>("sanjeevani");
+  const [code, setCode] = useState("");
   const [connection, setConnection] = useState<Connection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    // Remember the demo code in this browser so clients only type it once.
+    try {
+      setCode(localStorage.getItem(CODE_KEY) ?? "");
+    } catch {}
+  }, []);
 
   async function start() {
     setStarting(true);
@@ -52,10 +62,13 @@ export function VoiceCall() {
       const res = await fetch("/api/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clinic }),
+        body: JSON.stringify({ clinic, code }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not start the call.");
+      try {
+        if (needsCode) localStorage.setItem(CODE_KEY, code);
+      } catch {}
       setConnection({ serverUrl: data.serverUrl, token: data.token });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start the call.");
@@ -112,9 +125,21 @@ export function VoiceCall() {
           </label>
         ))}
       </fieldset>
+      {needsCode && (
+        <label className="flex flex-col gap-1 text-sm">
+          Demo access code
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            autoComplete="off"
+            className="rounded-md border border-neutral-300 bg-transparent px-3 py-2 dark:border-neutral-700"
+            placeholder="Shared by the clinic team"
+          />
+        </label>
+      )}
       <button
         onClick={start}
-        disabled={starting}
+        disabled={starting || (needsCode && !code.trim())}
         className="rounded-full bg-teal-700 px-6 py-3 font-medium text-white hover:bg-teal-800 disabled:opacity-60"
       >
         {starting ? "Starting…" : "Talk to the receptionist"}

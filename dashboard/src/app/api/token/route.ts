@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { AccessToken } from "livekit-server-sdk";
 import { NextResponse, type NextRequest } from "next/server";
 import { isDemoClinic } from "@/lib/clinics";
@@ -13,6 +13,19 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => null);
+
+  // Optional shared demo code: when DEMO_ACCESS_CODE is set, calls need it (protects the
+  // Sarvam/LiveKit credits behind a public link). Unset means the page is open.
+  const expected = process.env.DEMO_ACCESS_CODE?.trim();
+  if (expected) {
+    const given = typeof body?.code === "string" ? body.code.trim() : "";
+    const a = Buffer.from(given.toLowerCase());
+    const b = Buffer.from(expected.toLowerCase());
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return NextResponse.json({ error: "Please enter the correct demo access code." }, { status: 401 });
+    }
+  }
+
   const clinic = typeof body?.clinic === "string" ? body.clinic : null;
   if (!isDemoClinic(clinic)) {
     return NextResponse.json({ error: "Unknown clinic." }, { status: 400 });
