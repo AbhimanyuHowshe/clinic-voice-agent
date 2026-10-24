@@ -73,6 +73,9 @@ class Receptionist(Agent):
         self.state = state
 
     async def on_enter(self) -> None:
+        if self.state.clinic.greeting:
+            self.session.say(self.state.clinic.greeting)
+            return
         hindi = HINDI_OFFER if self.state.clinic.voice_language == "hi-IN" else ""
         self.session.generate_reply(instructions=GREETING.format(hindi=hindi))
 

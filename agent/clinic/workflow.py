@@ -985,7 +985,7 @@ def build_instructions(state: SessionState) -> str:
     now = state.now()
     doctors = "\n".join(f"- {d.name}, {d.specialty}" for d in state.doctors) or "- (none listed)"
     faqs = "\n".join(f"- Q: {f.question}\n  A: {f.answer}" for f in state.faqs) or "- (none)"
-    return f"""You are the voice receptionist for {clinic.name}, a fictional demo clinic.
+    return f"""You are the voice receptionist for {clinic.name}.
 Today is {now.strftime('%A')} {now.date().isoformat()} and the time is {now.strftime('%H:%M')} ({clinic.timezone}).
 Clinic phone: {clinic.phone or 'not listed'}. Address: {clinic.address or 'not listed'}.
 

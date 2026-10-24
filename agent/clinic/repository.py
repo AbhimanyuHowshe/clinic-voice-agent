@@ -29,6 +29,8 @@ class Clinic:
     phone: str | None
     address: str | None
     country: str = "IN"
+    # Fixed welcome line spoken word for word; None lets the model greet.
+    greeting: str | None = None
 
 
 @dataclass(frozen=True)
@@ -99,7 +101,7 @@ class SupabaseRepository:
     async def get_clinic(self, slug: str) -> Clinic | None:
         res = await _with_retry(
             lambda: self._db.table("clinics")
-            .select("id,slug,name,timezone,voice_language,phone,address,country")
+            .select("id,slug,name,timezone,voice_language,phone,address,country,greeting")
             .eq("slug", slug)
             .limit(1)
             .execute()

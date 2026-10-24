@@ -20,6 +20,7 @@ Everything runs online from Phase 1 onward, and each phase is deployed as it is 
 The project is a **demo** for prospective clients in **India and Australia**. It is not a live clinic deployment.
 
 - Use fictional clinics, doctors, FAQs and patients only. No real patient data.
+  Changed 2026-10-24 (user decision): the India demo clinic is now **Dr. Singh Dental Clinic, Ujjain**, built from the clinic's public website drgovindsingh.com. The Australian clinic stays fictional. Patients are still fictional.
 - Seed two demo clinics: one in India (`Asia/Kolkata`, Hindi/English/Hinglish) and one in Australia (`Australia/Sydney`, English). This shows per-clinic time zones and languages.
 - **Voice for Australia:** Sarvam focuses on Indian languages and accents. Its English voices are expected to sound Indian-accented. Test how it sounds in Phase 1. Tested 2026-10-21: the live API offers only Indian voices (`amelia`/`sophia` are rejected), so add an alternative English TTS for that clinic through a LiveKit plugin. Verify the options before choosing.
 - **Region:** the Supabase project is in Seoul (`ap-northeast-2`), between India and Australia. Keep it for the demo. Place the LiveKit agent region close to the database (check which regions LiveKit Cloud offers).

@@ -211,12 +211,29 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 
 **Answered, no changes:** a phone line would not make calls smoother (8 kHz phone audio, extra hop); forwarding cost on Indian unlimited plans is usually nil, plus the SIP number's rent and per-minute fee (not verified).
 
+### 2026-10-24: India clinic is now Dr. Singh Dental Clinic, Ujjain
+- **Source:** drgovindsingh.com (home, about, doctors, services and contact pages, read 2026-10-24). No fees or per-doctor timings are published there, so the agent has no fees to quote.
+- **The `sanjeevani` row is reused** (user choice): its slug, ID, staff logins and dashboard all stay the same. The name, phone (+91 7771818143), Ujjain address and FAQs (14, all from the site) are replaced. Harbourside (Australia) is unchanged.
+- **Doctors:** Dr. Govind Singh and Dr. Preeti Singh (Dentist), Mon–Sat 11:00–19:00, which are the clinic hours. **The 30-minute slots are a demo assumption.** The old fictional doctors (Sharma, Mehta, Rao) are set to `active = false`, not deleted, because old appointments reference them.
+- **Fixed welcome line:** the new `clinics.greeting` column (migration `20261024000001_clinic_greeting.sql`). When it is set, the agent speaks it word for word with `session.say`; when it is null, the model greets as before. Ujjain: "Namaste! Welcome to Dr. Govind Singh's Dental Clinic, Ujjain. How may I help you today? आप हिंदी में भी बात कर सकते हैं।"
+- The system prompt no longer calls every clinic "a fictional demo clinic".
+- Picker on the call page: "Dr. Singh Dental Clinic, Ujjain, India".
+- **Checks:** `uv run pytest`: 128 passed, 25 skipped. Live: `-k "greeting or constructs or faq"`: 4 passed, including the new `test_fixed_greeting_is_spoken_verbatim`. Dashboard `tsc` and `eslint` are clean.
+- **Applied 2026-10-24** (user said "do it"):
+  - `npx supabase db push --linked --include-seed` applied the migration, but only updated the seed hash and did not re-run it. The seed was then run with `npx supabase db query --linked -f supabase/seed.sql`.
+  - Verified in the database: the name, phone and greeting are set, there are 14 FAQs, both Singhs are active with 30-minute slots, the three old doctors are inactive, and Mon 2026-10-26 has 16 slots. No future bookings were left with the deactivated doctors.
+  - `lk agent deploy` reported "Completed deployment of agent to production".
+  - Pushed to `main` for Vercel.
+  - **No voice call has been made on the new setup yet.**
+
 ## In Progress
 
 - Nothing running locally. The agent runs on LiveKit Cloud; the web app on Vercel. The local dev server was stopped by Claude Code for low memory on 2026-10-23.
 - **Do not run the local agent while testing the live site**: both register with the same LiveKit project, so calls could go to the laptop.
 
 ## Pending User Actions
+
+- **Test a real call to the Ujjain clinic** on the live site: check the greeting, the FAQs and a booking with Dr. Govind Singh.
 
 - **Free memory before local testing:** the laptop has 7.7 GB, often with under 0.7 GB free.
 - **Decide on latency work** (see Current Status). Moving Supabase to Mumbai needs a new project created by the user.

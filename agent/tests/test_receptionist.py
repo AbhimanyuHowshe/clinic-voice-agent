@@ -8,6 +8,7 @@ Run one file at a time to avoid Sarvam 429 rate limits:
 """
 
 import asyncio
+import dataclasses
 import os
 
 import pytest
@@ -46,6 +47,16 @@ async def start_after_greeting(session: AgentSession, agent) -> None:
 
 def test_receptionist_constructs():
     assert "not a medical professional" in make_agent().instructions
+
+
+async def test_fixed_greeting_is_spoken_verbatim():
+    greeting = "Namaste! Welcome to Demo Dental Clinic. How may I help you today?"
+    clinic = dataclasses.replace(CLINIC, greeting=greeting)
+    state = SessionState(clinic=clinic, doctors=[SHARMA], faqs=FAQS, repo=FakeRepo())
+    async with AgentSession() as session:
+        await start_after_greeting(session, receptionist.Receptionist(state))
+        said = [m.text_content for m in session.history.items if getattr(m, "role", None) == "assistant"]
+        assert said == [greeting]
 
 
 CASES = [
