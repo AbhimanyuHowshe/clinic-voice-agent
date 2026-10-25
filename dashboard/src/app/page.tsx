@@ -50,16 +50,16 @@ export default function Home() {
       <div aria-hidden className="pointer-events-none absolute -top-24 right-[-10rem] -z-10 h-96 w-96 rounded-full bg-cyan-300/30 blur-3xl dark:bg-cyan-800/20" />
       <div aria-hidden className="pointer-events-none absolute top-40 left-[-8rem] -z-10 h-80 w-80 rounded-full bg-teal-300/30 blur-3xl dark:bg-teal-800/20" />
 
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
-        <div className="flex items-center gap-2.5">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-teal-600 to-cyan-600 text-white shadow-md">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:py-5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-teal-600 to-cyan-600 text-white shadow-md">
             <Icon d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm7 9a7 7 0 0 1-14 0m7 7v2" />
           </span>
-          <span className="font-semibold tracking-tight">Clinic AI Receptionist</span>
+          <span className="truncate text-sm font-semibold tracking-tight sm:text-base">Clinic AI Receptionist</span>
         </div>
         <Link
           href="/login"
-          className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm backdrop-blur transition hover:border-teal-500 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-teal-300"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-300 bg-white/80 px-3 py-2 text-sm sm:px-4 font-medium text-slate-700 shadow-sm backdrop-blur transition hover:border-teal-500 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:text-teal-300"
         >
           <Icon d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" className="h-4 w-4" />
           Staff login
@@ -67,42 +67,43 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-16">
-        <section className="grid items-center gap-10 py-8 lg:grid-cols-2 lg:py-14">
-          <div>
-            <span className="inline-flex items-center gap-2 rounded-full bg-teal-600/10 px-3 py-1 text-xs font-medium text-teal-800 dark:text-teal-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-teal-500" />
+        <section className="grid gap-6 py-4 sm:gap-8 sm:py-8 lg:grid-cols-2 lg:items-center lg:gap-x-10 lg:gap-y-6 lg:py-14">
+          <div className="lg:col-start-1 lg:row-start-1 lg:self-end">
+            <span className="inline-flex max-w-full items-center gap-2 rounded-full bg-teal-600/10 px-3 py-1 text-xs font-medium text-teal-800 dark:text-teal-300">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-teal-500" />
               Live demo · speak in Hindi, English or Hinglish
             </span>
-            <h1 className="mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+            <h1 className="mt-4 text-3xl font-bold leading-tight tracking-tight sm:mt-5 sm:text-5xl">
               Your clinic&apos;s receptionist,{" "}
               <span className="bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">
                 available by voice
               </span>
             </h1>
-            <p className="mt-4 max-w-xl text-lg text-slate-600 dark:text-slate-300">
+            <p className="mt-3 max-w-xl text-base text-slate-600 sm:mt-4 sm:text-lg dark:text-slate-300">
               Ask about the clinic, or book, move or cancel an appointment just by talking. No app, no waiting on hold.
             </p>
-            <div className="mt-8">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Try saying</p>
-              <ul className="mt-3 flex flex-wrap gap-2">
-                {TRY_SAYING.map((t) => (
-                  <li
-                    key={t}
-                    className="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
-                  >
-                    “{t}”
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
 
-          <div className="rounded-3xl border border-white/60 bg-white/90 p-6 shadow-xl shadow-teal-900/5 backdrop-blur sm:p-8 dark:border-slate-800 dark:bg-slate-900/90">
+          <div className="rounded-3xl border border-white/60 bg-white/90 p-5 shadow-xl shadow-teal-900/5 backdrop-blur sm:p-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 dark:border-slate-800 dark:bg-slate-900/90">
             <VoiceCall needsCode={Boolean(process.env.DEMO_ACCESS_CODE?.trim())} />
+          </div>
+
+          <div className="lg:col-start-1 lg:row-start-2 lg:self-start">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Try saying</p>
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {TRY_SAYING.map((t) => (
+                <li
+                  key={t}
+                  className="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-sm text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                >
+                  “{t}”
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-6 grid gap-3 sm:mt-4 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           {FEATURES.map((f) => (
             <div key={f.title} className="card transition hover:-translate-y-0.5 hover:shadow-md">
               <span className="grid h-10 w-10 place-items-center rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300">
@@ -114,7 +115,7 @@ export default function Home() {
           ))}
         </section>
 
-        <section className="mt-12 flex flex-col items-start justify-between gap-4 rounded-2xl bg-gradient-to-r from-teal-700 to-cyan-700 p-6 text-white shadow-lg sm:flex-row sm:items-center sm:p-8">
+        <section className="mt-8 flex flex-col items-stretch justify-between gap-4 rounded-2xl bg-gradient-to-r from-teal-700 to-cyan-700 p-5 text-white shadow-lg sm:mt-12 sm:flex-row sm:items-center sm:p-8">
           <div>
             <h2 className="text-xl font-semibold">Clinic staff?</h2>
             <p className="mt-1 text-sm text-teal-50/90">
@@ -123,14 +124,14 @@ export default function Home() {
           </div>
           <Link
             href="/login"
-            className="shrink-0 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-teal-800 shadow transition hover:bg-teal-50"
+            className="shrink-0 rounded-full bg-white px-5 py-3 text-center text-sm font-semibold text-teal-800 shadow transition hover:bg-teal-50 sm:py-2.5"
           >
             Open staff dashboard →
           </Link>
         </section>
       </main>
 
-      <footer className="border-t border-slate-200/70 py-6 text-center text-xs text-slate-500 dark:border-slate-800">
+      <footer className="border-t border-slate-200/70 px-4 py-6 text-center text-xs text-slate-500 dark:border-slate-800">
         Demo AI receptionist · not a medical service · in an emergency call 112
       </footer>
     </div>

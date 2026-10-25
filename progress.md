@@ -231,6 +231,7 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 - `voice-call.tsx`: the call card has a heading, clinic choices with a highlight ring, and a large "Start voice call" button with a mic icon. During a call it shows the clinic name and a round visualizer that pulses while the agent speaks. The demo note now says test bookings are not passed to the clinic (it used to say "fictional clinics").
 - Checks: `tsc --noEmit` and `eslint` are clean. Pushed 2026-10-25 (user go-ahead). **Not visually checked in a browser by Claude.**
 - The Hindi example phrase names Dr. Govind Singh (user request).
+- Mobile pass: on phones the call card now sits right under the headline (example phrases come after it). Smaller heading and padding, a full-width End call button and banner button, and a header that fits 320 px. Desktop layout is unchanged (the card is in the right column). Not checked on a real phone by Claude.
 - **Staff sign-up discussed, then cancelled for now** (user, 2026-10-25). Options discussed: vendor-created first admin plus invite links (safest), self sign-up with owner approval, and fully open sign-up. Staff logins are still created with `scripts/create_staff.py`.
 
 ## In Progress

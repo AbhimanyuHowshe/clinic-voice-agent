@@ -31,13 +31,13 @@ function AgentStatus({ clinicName }: { clinicName: string }) {
   const { state, audioTrack } = useVoiceAssistant();
   return (
     <div className="flex flex-col items-center gap-4">
-      <p className="text-sm font-medium text-slate-500">On call with {clinicName}</p>
-      <div className="relative grid h-40 w-40 place-items-center">
+      <p className="text-center text-sm font-medium text-slate-500">On call with {clinicName}</p>
+      <div className="relative grid h-36 w-36 place-items-center sm:h-40 sm:w-40">
         <span
           aria-hidden
           className={`absolute inset-0 rounded-full bg-teal-400/20 ${state === "speaking" ? "animate-ping" : ""}`}
         />
-        <div className="relative grid h-36 w-36 place-items-center rounded-full bg-gradient-to-br from-teal-600 to-cyan-600 shadow-lg">
+        <div className="relative grid h-32 w-32 place-items-center rounded-full sm:h-36 sm:w-36 bg-gradient-to-br from-teal-600 to-cyan-600 shadow-lg">
           <div className="h-16 w-24 [--lk-fg:white] [--lk-va-bar-bg:rgba(255,255,255,0.35)]">
             <BarVisualizer state={state} trackRef={audioTrack} barCount={5} />
           </div>
@@ -102,7 +102,7 @@ export function VoiceCall({ needsCode }: { needsCode: boolean }) {
       >
         <AgentStatus clinicName={DEMO_CLINICS.find((c) => c.slug === clinic)?.name ?? "the clinic"} />
         <RoomAudioRenderer />
-        <DisconnectButton className="rounded-full bg-red-600 px-8 py-3 font-semibold text-white shadow-md transition hover:bg-red-700">
+        <DisconnectButton className="w-full rounded-full bg-red-600 px-8 py-3.5 sm:w-auto sm:py-3 font-semibold text-white shadow-md transition hover:bg-red-700">
           End call
         </DisconnectButton>
       </LiveKitRoom>
