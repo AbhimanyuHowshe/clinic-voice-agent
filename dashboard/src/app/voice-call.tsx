@@ -25,14 +25,25 @@ const STATE_TEXT: Record<string, string> = {
   failed: "Connection failed",
 };
 
-function AgentStatus() {
+const MIC_ICON = "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Zm7 9a7 7 0 0 1-14 0m7 7v2";
+
+function AgentStatus({ clinicName }: { clinicName: string }) {
   const { state, audioTrack } = useVoiceAssistant();
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="h-24 w-64">
-        <BarVisualizer state={state} trackRef={audioTrack} barCount={7} />
+      <p className="text-sm font-medium text-slate-500">On call with {clinicName}</p>
+      <div className="relative grid h-40 w-40 place-items-center">
+        <span
+          aria-hidden
+          className={`absolute inset-0 rounded-full bg-teal-400/20 ${state === "speaking" ? "animate-ping" : ""}`}
+        />
+        <div className="relative grid h-36 w-36 place-items-center rounded-full bg-gradient-to-br from-teal-600 to-cyan-600 shadow-lg">
+          <div className="h-16 w-24 [--lk-fg:white] [--lk-va-bar-bg:rgba(255,255,255,0.35)]">
+            <BarVisualizer state={state} trackRef={audioTrack} barCount={5} />
+          </div>
+        </div>
       </div>
-      <p className="text-sm text-neutral-600 dark:text-neutral-300" aria-live="polite">
+      <p className="text-base font-medium text-slate-700 dark:text-slate-200" aria-live="polite">
         {STATE_TEXT[state] ?? state}
       </p>
     </div>
@@ -87,11 +98,11 @@ export function VoiceCall({ needsCode }: { needsCode: boolean }) {
         video={false}
         onDisconnected={() => setConnection(null)}
         onError={(e) => setError(e.message)}
-        className="flex flex-col items-center gap-6"
+        className="flex flex-col items-center gap-6 py-4"
       >
-        <AgentStatus />
+        <AgentStatus clinicName={DEMO_CLINICS.find((c) => c.slug === clinic)?.name ?? "the clinic"} />
         <RoomAudioRenderer />
-        <DisconnectButton className="rounded-full bg-red-600 px-6 py-3 font-medium text-white hover:bg-red-700">
+        <DisconnectButton className="rounded-full bg-red-600 px-8 py-3 font-semibold text-white shadow-md transition hover:bg-red-700">
           End call
         </DisconnectButton>
       </LiveKitRoom>
@@ -99,14 +110,20 @@ export function VoiceCall({ needsCode }: { needsCode: boolean }) {
   }
 
   return (
-    <div className="flex w-full max-w-md flex-col gap-4">
+    <div className="flex w-full flex-col gap-5">
+      <div>
+        <h2 className="text-xl font-semibold">Talk to the receptionist</h2>
+        <p className="mt-1 text-sm text-slate-500">Pick a clinic, allow the microphone, and start speaking.</p>
+      </div>
       <fieldset className="flex flex-col gap-2">
-        <legend className="mb-2 text-sm font-medium">Choose a demo clinic</legend>
+        <legend className="sr-only">Choose a clinic</legend>
         {DEMO_CLINICS.map((c) => (
           <label
             key={c.slug}
-            className={`flex cursor-pointer flex-col rounded-lg border p-3 ${
-              clinic === c.slug ? "border-teal-600 bg-teal-50 dark:bg-teal-950" : "border-neutral-300 dark:border-neutral-700"
+            className={`flex cursor-pointer flex-col rounded-xl border p-3.5 transition ${
+              clinic === c.slug
+                ? "border-teal-500 bg-teal-50 ring-2 ring-teal-500/20 dark:bg-teal-950"
+                : "border-slate-200 hover:border-teal-300 dark:border-slate-700"
             }`}
           >
             <span className="flex items-center gap-2">
@@ -116,10 +133,11 @@ export function VoiceCall({ needsCode }: { needsCode: boolean }) {
                 value={c.slug}
                 checked={clinic === c.slug}
                 onChange={() => setClinic(c.slug)}
+                className="accent-teal-600"
               />
               <span className="font-medium">{c.name}</span>
             </span>
-            <span className="ml-6 text-sm text-neutral-600 dark:text-neutral-400">
+            <span className="ml-6 text-sm text-slate-500 dark:text-slate-400">
               {c.place} · {c.languages}
             </span>
           </label>
@@ -132,7 +150,7 @@ export function VoiceCall({ needsCode }: { needsCode: boolean }) {
             value={code}
             onChange={(e) => setCode(e.target.value)}
             autoComplete="off"
-            className="rounded-md border border-neutral-300 bg-transparent px-3 py-2 dark:border-neutral-700"
+            className="input"
             placeholder="Shared by the clinic team"
           />
         </label>
@@ -140,17 +158,23 @@ export function VoiceCall({ needsCode }: { needsCode: boolean }) {
       <button
         onClick={start}
         disabled={starting || (needsCode && !code.trim())}
-        className="rounded-full bg-teal-700 px-6 py-3 font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+        className="group inline-flex items-center justify-center gap-3 rounded-full bg-gradient-to-r from-teal-600 to-cyan-600 px-6 py-4 text-base font-semibold text-white shadow-lg shadow-teal-600/25 transition hover:from-teal-700 hover:to-cyan-700 disabled:opacity-60"
       >
-        {starting ? "Starting…" : "Talk to the receptionist"}
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-white/20 transition group-hover:scale-110">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden>
+            <path d={MIC_ICON} />
+          </svg>
+        </span>
+        {starting ? "Connecting…" : "Start voice call"}
       </button>
       {error && (
         <p role="alert" className="text-sm text-red-600">
           {error}
         </p>
       )}
-      <p className="text-xs text-neutral-500">
-        Uses your microphone. Demo only: fictional clinics, no real appointments. Calls are not recorded. If the
+      <p className="text-xs leading-relaxed text-slate-500">
+        Uses your microphone. Demo only: bookings made here are test bookings and are not passed to the clinic.
+        Calls are not recorded. If the
         receptionist is switched off or outside its hours, you will hear a short message instead. The first call
         can take up to 20 seconds to connect.
       </p>

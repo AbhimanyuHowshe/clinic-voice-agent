@@ -226,6 +226,13 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
   - Pushed to `main` for Vercel.
   - **No voice call has been made on the new setup yet.**
 
+### 2026-10-25: New home page design
+- `page.tsx`: top bar with a logo and a **Staff login** button (→ `/login`), a hero headline with phrases to try (English, Hindi, Hinglish), four feature cards, a "Clinic staff?" banner with an "Open staff dashboard" button, and a footer with the 112 emergency note.
+- `voice-call.tsx`: the call card has a heading, clinic choices with a highlight ring, and a large "Start voice call" button with a mic icon. During a call it shows the clinic name and a round visualizer that pulses while the agent speaks. The demo note now says test bookings are not passed to the clinic (it used to say "fictional clinics").
+- Checks: `tsc --noEmit` and `eslint` are clean. Pushed 2026-10-25 (user go-ahead). **Not visually checked in a browser by Claude.**
+- The Hindi example phrase names Dr. Govind Singh (user request).
+- **Staff sign-up discussed, then cancelled for now** (user, 2026-10-25). Options discussed: vendor-created first admin plus invite links (safest), self sign-up with owner approval, and fully open sign-up. Staff logins are still created with `scripts/create_staff.py`.
+
 ## In Progress
 
 - Nothing running locally. The agent runs on LiveKit Cloud; the web app on Vercel. The local dev server was stopped by Claude Code for low memory on 2026-10-23.
