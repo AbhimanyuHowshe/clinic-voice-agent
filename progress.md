@@ -234,6 +234,13 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 - Mobile pass: on phones the call card now sits right under the headline (example phrases come after it). Smaller heading and padding, a full-width End call button and banner button, and a header that fits 320 px. Desktop layout is unchanged (the card is in the right column). Not checked on a real phone by Claude.
 - **Staff sign-up discussed, then cancelled for now** (user, 2026-10-25). Options discussed: vendor-created first admin plus invite links (safest), self sign-up with owner approval, and fully open sign-up. Staff logins are still created with `scripts/create_staff.py`.
 
+### 2026-10-25: Old Sanjeevani doctors and bookings removed
+- At the user's request, deleted from the live database: all 4 appointments of the Ujjain clinic (`sanjeevani`; all were old test bookings with Dr. Anjali Sharma, none still booked) and the three old doctors (Sharma, Rao, Mehta). Their schedules were removed with them (cascade).
+- Verified: the clinic now has only Dr. Govind Singh and Dr. Preeti Singh (6 working days each) and 0 appointments. Harbourside is untouched (it had no bookings).
+- **Kept:** 10 `audit_logs` rows from when the old doctors were created or changed, plus the new delete entries. The audit trail was left intact on purpose.
+- Code: the tool description example is now "Dr. Govind Singh" or "dentist"; the smoke script and a code comment were updated. The test fixtures still use their own fictional doctors (test data only). `pytest`: 128 passed, 25 skipped. Agent redeployed and pushed to `main`.
+- "Dr. Singh" or "dentist" matches both doctors, so the agent asks which one.
+
 ## In Progress
 
 - Nothing running locally. The agent runs on LiveKit Cloud; the web app on Vercel. The local dev server was stopped by Claude Code for low memory on 2026-10-23.

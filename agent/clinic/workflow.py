@@ -299,7 +299,7 @@ _HINGLISH_WORDS = {
 def detect_language(text: str) -> str | None:
     """Reply language implied by a patient message: "Hindi", "English", or None if unclear.
 
-    Short fragments ("3 बजे", "Doctor Anjali", "999") return None so the conversation keeps
+    Short fragments ("3 बजे", "Doctor Govind", "999") return None so the conversation keeps
     its current language instead of flipping every turn. Hinglish counts as Hindi.
     """
     text = text or ""
@@ -539,7 +539,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         Call this every time the patient names a time, before saying anything about it.
 
         Args:
-            doctor: Doctor name or specialty, e.g. "Dr. Sharma" or "pediatrician".
+            doctor: Doctor name or specialty, e.g. "Dr. Govind Singh" or "dentist".
             date: Clinic-local date as YYYY-MM-DD.
             time: The time the patient asked for, e.g. "17:00" or "5 PM". Leave empty to list free times.
         """

@@ -102,7 +102,7 @@ async def run_llm() -> bool:
         msg = await chat.bind_tools([check_availability]).ainvoke(
             [
                 ("system", "You are a clinic receptionist. Use tools to check availability. Today is 2026-10-21."),
-                ("human", "Is Dr. Sharma free tomorrow?"),
+                ("human", "Is Dr. Govind Singh free tomorrow?"),
             ]
         )
         calls = getattr(msg, "tool_calls", [])

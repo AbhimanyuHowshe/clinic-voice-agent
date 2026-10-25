@@ -33,8 +33,9 @@ from seed_doctors s join public.clinics c on c.slug = s.slug
 on conflict (clinic_id, name) do update set
   specialty = excluded.specialty, slot_minutes = excluded.slot_minutes, active = true;
 
--- Doctors no longer in the seed (e.g. the old fictional Sanjeevani doctors) are switched off,
--- not deleted, because past appointments still reference them.
+-- Doctors no longer in the seed are switched off rather than deleted, because past
+-- appointments may still reference them. (The old fictional Sanjeevani doctors and their
+-- bookings were deleted by hand on 2026-10-25.)
 update public.doctors d set active = false
 from public.clinics c
 where d.clinic_id = c.id and c.slug in ('sanjeevani', 'harbourside')
