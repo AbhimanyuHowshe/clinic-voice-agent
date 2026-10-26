@@ -121,8 +121,9 @@ async def test_booking_flow_books_only_after_yes():
         )
         await result.expect.contains_message(role="assistant").judge(
             judge_llm,
-            intent="Mentions Dr. Sharma, 9:15 AM and Rahul, and asks the patient whether to go ahead "
-            "and book it. Does not claim the booking is already complete.",
+            intent="Mentions Dr. Sharma (full name or a date is fine), 9:15 AM and Rahul (full name is "
+            "fine), and asks the patient whether to go ahead and book it. Does not claim the booking is "
+            "already complete. A short 'one moment' filler at the start is fine.",
         )
         assert repo.appointments == {}, "booked before the patient confirmed"
 

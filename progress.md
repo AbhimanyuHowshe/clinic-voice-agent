@@ -10,7 +10,7 @@ Record only verified results here. Do not mark an item done until it has actuall
   2. More real calls on the live site, on laptop and phone (Chrome / Safari), including a booking that shows on the dashboard.
   3. Latency improvements offered but **not started** (user to decide):
      - Move Supabase to Mumbai (needs the user to create the project).
-     - Drop the extra availability call before confirm (~0.4 s).
+     - ~~Drop the extra availability call before confirm (~0.4 s).~~ Done in code 2026-10-26.
      - A filler phrase while tools run.
      - Tune endpointing 1.2 s → ~0.9 s.
      - Try Bulbul v4 Flash.
@@ -240,6 +240,18 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 - **Kept:** 10 `audit_logs` rows from when the old doctors were created or changed, plus the new delete entries. The audit trail was left intact on purpose.
 - Code: the tool description example is now "Dr. Govind Singh" or "dentist"; the smoke script and a code comment were updated. The test fixtures still use their own fictional doctors (test data only). `pytest`: 128 passed, 25 skipped. Agent redeployed and pushed to `main`.
 - "Dr. Singh" or "dentist" matches both doctors, so the agent asks which one.
+
+### 2026-10-26: Latency optimisation (code only)
+- **Call start:** after the clinic lookup, availability, call log, doctors and FAQs now load in parallel (`asyncio.gather`). Measured from the laptop against the live database (reads only, 3 of the 4 lookups): sequential 1.03–1.56 s, parallel 0.54–0.58 s. So the greeting should start about 0.7–1.4 s sooner.
+- **Confirming ("yes"):** removed the separate `effective_state` round trip (~0.4 s) before book/cancel/reschedule. The database functions already refuse with `agent_unavailable` when the agent is off; that now also sets `changes_allowed = False`. The 60-second watcher is unchanged. `test_switched_off_mid_call_blocks_changes` was updated: the database refuses, nothing is booked, and later confirmations skip the database.
+- **Preemptive TTS:** LiveKit 1.8.8 already runs the LLM preemptively by default. `preemptive_tts: True` now also prepares the audio during the 1.2 s endpoint wait, so the reply can play as soon as the turn ends. Cost: a little extra Sarvam TTS for discarded drafts. Safe with the graph, because its turn counter comes from the message history.
+- `uv run pytest`: 128 passed, 25 skipped. **Not voice-tested, not deployed, not pushed** (waiting for user consent).
+- **Dashboard slow (user report):** the response header `x-vercel-id: bom1::iad1::…` showed the Next.js server code running in Washington DC (`iad1`, Vercel's default) while Supabase is in Seoul. Each dashboard page makes about 3–4 dependent Supabase round trips (session check, staff profile, then page data), each crossing the Pacific. Added `dashboard/vercel.json` with `"regions": ["icn1"]` (Seoul, next to the database; Vercel docs say Hobby allows one region of choice). The page shell itself loads in ~0.45 s from India. **Not pushed yet.**
+- **Shorter endpoint wait:** 1.2 s → 0.9 s for normal turns (the phone-number wait stays at 2.5 s). Risk: Sarvam transcripts arriving late could cut a patient off; **needs a voice test.**
+- **Filler phrase:** if the model calls a database tool (check_availability, prepare_booking, find_appointments, prepare_reschedule, confirm_pending_action) before saying anything that turn, the agent says "One moment, let me check." / "एक मिनट, मैं देखती हूँ।" while the tool runs. There is no filler when the model already spoke or when no slow tool is called. 3 new offline tests.
+- Pushed and deployed 2026-10-26 (user: "go ahead").
+- Tests: `pytest` 131 passed, 25 skipped. Live (`-k "booking or greeting or faq"`): the booking test failed once because the grader objected to "Dr. Anjali Sharma" vs "Dr. Sharma" (the reply was correct and started with the filler), then passed on re-run. Its intent was loosened. The live trace showed LLM time to first token of 0.2 s.
+- Supabase move to Mumbai: postponed by the user ("later"). Still not done: the turn-detector model and other TTS models.
 
 ## In Progress
 

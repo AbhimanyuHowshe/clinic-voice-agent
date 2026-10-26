@@ -37,10 +37,11 @@ GREETING = (
     "{hindi}Keep it short."
 )
 HINDI_OFFER = "Then add one short sentence in Hindi, in Devanagari script, saying they can also speak Hindi. "
-# Sarvam transcripts can land after the default 0.5 s endpoint, so normal turns wait 1.2 s.
+# Sarvam transcripts can land after the default 0.5 s endpoint, so normal turns wait 0.9 s
+# (was 1.2 s; the reply is now prepared during this wait, see preemptive_generation).
 # While the patient reads out a phone number the agent waits 2.5 s, so pauses between digit
 # groups do not split the number into separate turns.
-NORMAL_ENDPOINTING = {"min_delay": 1.2, "max_delay": 4.0}
+NORMAL_ENDPOINTING = {"min_delay": 0.9, "max_delay": 4.0}
 PHONE_ENDPOINTING = {"min_delay": 2.5, "max_delay": 4.0}
 
 # Silence handling: after USER_AWAY_SECONDS without speech the agent checks in once; if the
@@ -115,14 +116,14 @@ async def entrypoint(ctx: JobContext) -> None:
         ctx.shutdown("unknown clinic")
         return
 
-    availability = await repo.effective_state(clinic.id)
-    call_id = await repo.start_call(clinic.id, ctx.room.name)
-    state = SessionState(
-        clinic=clinic,
-        doctors=await repo.list_doctors(clinic.id),
-        faqs=await repo.list_faqs(clinic.id),
-        repo=repo,
+    # Independent lookups run together: one database round trip instead of four before the greeting.
+    availability, call_id, doctors, faqs = await asyncio.gather(
+        repo.effective_state(clinic.id),
+        repo.start_call(clinic.id, ctx.room.name),
+        repo.list_doctors(clinic.id),
+        repo.list_faqs(clinic.id),
     )
+    state = SessionState(clinic=clinic, doctors=doctors, faqs=faqs, repo=repo)
 
     async def log_call_end(reason: str) -> None:
         if call_id is None:
@@ -155,7 +156,13 @@ async def entrypoint(ctx: JobContext) -> None:
             # Slightly slower than default so patients can follow numbers, dates and times.
             pace=0.9,
         ),
-        turn_handling={"endpointing": NORMAL_ENDPOINTING},
+        turn_handling={
+            "endpointing": NORMAL_ENDPOINTING,
+            # The reply (text and audio) is prepared while the endpoint delay runs, so it can
+            # play as soon as the turn ends. Discarded drafts cost a little extra TTS. The graph
+            # derives its turn count from the message history, so re-runs are safe.
+            "preemptive_generation": {"enabled": True, "preemptive_tts": True},
+        },
         user_away_timeout=USER_AWAY_SECONDS,
     )
 

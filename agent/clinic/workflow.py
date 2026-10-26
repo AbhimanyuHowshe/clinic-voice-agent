@@ -11,7 +11,8 @@ rules that must never depend on the model are enforced in code, here and in the 
   request against real data and stores a pending action; ``confirm_pending_action`` only runs
   it in a *later* patient turn, so the patient must have heard the read-back and answered.
 - Slots come only from the database; a requested time that isn't free is refused.
-- Agent availability is rechecked before every change (and again inside the database).
+- Agent availability is checked inside the database on every change (book, cancel, reschedule),
+  so no extra round trip is made before it.
 - Each pending booking carries one idempotency key, so retries never double-book.
 """
 
@@ -104,6 +105,8 @@ class SessionState:
     phone_digits: str = ""
     phone_note: str | None = None
     digits_turn: int = -1
+    # Last turn in which anything was spoken (model text or a filler phrase).
+    spoken_turn: int = -1
     # Called with True/False when phone capture starts/ends (the voice session waits longer).
     on_phone_mode: Callable[[bool], None] | None = None
     # Upcoming appointments found for a phone number (find_appointments), in the order read out.
@@ -523,12 +526,10 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         # The database returns UTC instants; patients hear clinic-local times.
         return [s.astimezone(state.tz) for s in await repo.available_slots(doctor.id, day)]
 
-    async def changes_blocked() -> str | None:
+    def changes_blocked() -> str | None:
+        # The write functions recheck availability inside the database, so a separate
+        # effective_state call here would only add a ~0.4 s round trip.
         if not state.changes_allowed:
-            return ERROR_TEXT["agent_unavailable"]
-        st = await repo.effective_state(state.clinic.id)
-        if not st.get("available"):
-            state.changes_allowed = False
             return ERROR_TEXT["agent_unavailable"]
         return None
 
@@ -741,7 +742,7 @@ def build_tools(state: SessionState) -> list[BaseTool]:
                 "The patient has not clearly said yes, so nothing was done. Ask them plainly: "
                 "should I go ahead, yes or no?"
             )
-        blocked = await changes_blocked()
+        blocked = changes_blocked()
         if blocked:
             state.pending = None
             return blocked + " Offer to have clinic staff call them back."
@@ -764,6 +765,8 @@ def build_tools(state: SessionState) -> list[BaseTool]:
         if not res.get("ok"):
             state.pending = None
             err = res.get("error", "")
+            if err == "agent_unavailable":
+                state.changes_allowed = False
             return ERROR_TEXT.get(err, "The clinic system refused the change.") + " Nothing was changed."
         state.pending = None
         state.found = []  # appointment list is stale after a change
@@ -821,6 +824,17 @@ def build_tools(state: SessionState) -> list[BaseTool]:
 # Graph
 # ---------------------------------------------------------------------------
 
+
+# Tools that wait on the database (~0.4 s or more). If the model calls one before saying
+# anything this turn, a short filler is spoken so the patient does not hear silence.
+SLOW_TOOLS = {
+    "check_availability", "prepare_booking", "find_appointments", "prepare_reschedule",
+    "confirm_pending_action",
+}
+FILLER = {
+    "English": "One moment, let me check.",
+    "Hindi": "एक मिनट, मैं देखती हूँ।",
+}
 
 LANGUAGE_RULE = {
     "English": "Reply language for this turn: English only. Do not mix in Hindi.",
@@ -955,9 +969,14 @@ def build_graph(model: BaseChatModel, state: SessionState):
         async for chunk in bound.astream(messages):
             if isinstance(chunk.content, str) and chunk.content:
                 write(chunk.content)
+                state.spoken_turn = state.turn
             full = chunk if full is None else full + chunk
         if full is None:
             return {"messages": [AIMessage(content="")]}
+        if state.spoken_turn != state.turn and any(c["name"] in SLOW_TOOLS for c in full.tool_calls):
+            # Spoken while the tool runs; the model's own reply follows it.
+            write(FILLER[state.language] + " ")
+            state.spoken_turn = state.turn
         for call in full.tool_calls:
             args = {k: v for k, v in call["args"].items() if k not in _PRIVATE_ARGS}
             logger.info("tool call %s %s", call["name"], args)

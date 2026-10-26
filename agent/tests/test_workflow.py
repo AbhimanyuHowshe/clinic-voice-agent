@@ -231,7 +231,15 @@ async def test_switched_off_mid_call_blocks_changes():
     state.turn, state.last_answer = 1, "yes"
     repo.available = False
     out = await tools["confirm_pending_action"].ainvoke({})
-    assert "switched off" in out and repo.book_calls == 0 and not state.changes_allowed
+    # The database refuses the write (it rechecks availability itself); nothing is booked.
+    assert "switched off" in out and repo.appointments == {} and not state.changes_allowed
+
+    # Once switched off, later confirmations stop before calling the database at all.
+    await tools["prepare_booking"].ainvoke(BOOK_ARGS())
+    state.turn, state.last_answer = 2, "yes"
+    calls = repo.book_calls
+    out = await tools["confirm_pending_action"].ainvoke({})
+    assert "switched off" in out and repo.book_calls == calls
 
 
 # --- cancel and reschedule ------------------------------------------------------------
@@ -326,6 +334,48 @@ async def test_graph_routes_tool_call_then_answers():
     assert isinstance(msgs[-2], ToolMessage) and "9:00 AM" in msgs[-2].content
     assert msgs[-1].content.startswith("Dr. Sharma is free")
     assert state.turn == 1
+
+
+async def spoken(graph, messages) -> str:
+    """Everything the graph streams to speech for one patient turn."""
+    return "".join([c async for c in graph.astream({"messages": messages}, stream_mode="custom")])
+
+
+async def test_filler_is_spoken_while_a_slow_tool_runs():
+    state = make_state()
+    model = ScriptedChatModel(replies=[
+        tool_call("check_availability", {"doctor": "Sharma", "date": next_open_day().isoformat()}),
+        AIMessage(content="Dr. Sharma is free at 9 AM."),
+    ], seen=[])
+    said = await spoken(build_graph(model, state), [HumanMessage("Is Dr Sharma free tomorrow?")])
+    assert said == "One moment, let me check. Dr. Sharma is free at 9 AM."
+
+
+async def test_filler_follows_the_reply_language():
+    state = make_state()
+    model = ScriptedChatModel(replies=[
+        tool_call("check_availability", {"doctor": "Sharma", "date": next_open_day().isoformat()}),
+        AIMessage(content="डॉक्टर शर्मा 9 बजे खाली हैं।"),
+    ], seen=[])
+    said = await spoken(build_graph(model, state), [HumanMessage("मुझे कल डॉक्टर शर्मा से मिलना है")])
+    assert said.startswith("एक मिनट, मैं देखती हूँ।")
+
+
+async def test_no_filler_when_the_model_already_spoke_or_no_slow_tool():
+    state = make_state()
+    model = ScriptedChatModel(replies=[
+        AIMessage(content="Sure, checking.", tool_calls=[{
+            "name": "check_availability", "id": "c1",
+            "args": {"doctor": "Sharma", "date": next_open_day().isoformat()},
+        }]),
+        AIMessage(content=" He is free at 9 AM."),
+    ], seen=[])
+    said = await spoken(build_graph(model, state), [HumanMessage("Is Dr Sharma free tomorrow?")])
+    assert said == "Sure, checking. He is free at 9 AM."
+
+    state = make_state()
+    model = ScriptedChatModel(replies=[AIMessage(content="We are open 9 AM to 1 PM.")], seen=[])
+    assert await spoken(build_graph(model, state), [HumanMessage("Timings?")]) == "We are open 9 AM to 1 PM."
 
 
 async def test_graph_plain_faq_answer_skips_tools():
