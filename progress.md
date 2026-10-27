@@ -253,6 +253,12 @@ All fixes below came from the user's own calls on http://localhost:8000. Logs we
 - Tests: `pytest` 131 passed, 25 skipped. Live (`-k "booking or greeting or faq"`): the booking test failed once because the grader objected to "Dr. Anjali Sharma" vs "Dr. Sharma" (the reply was correct and started with the filler), then passed on re-run. Its intent was loosened. The live trace showed LLM time to first token of 0.2 s.
 - Supabase move to Mumbai: postponed by the user ("later"). Still not done: the turn-detector model and other TTS models.
 
+### 2026-10-26: Real-looking keys found in agent/.env.example (never committed)
+- The uncommitted local change to `agent/.env.example` (there since before this session) replaced the placeholders with real-looking values for LiveKit, Sarvam and Supabase, in an older file layout. Checked with values masked, never printed.
+- Not in Git history: both committed versions are placeholders only. It was part of the build context uploaded to LiveKit Cloud (`!.env.example` in `.dockerignore`), but the Dockerfile never copies it into the image.
+- Fixed (user approved): `git restore agent/.env.example` (back to placeholders; real values stay in `agent/.env`, which exists), and removed `!.env.example` from `agent/.dockerignore`, so the template is no longer uploaded.
+- Still recommended: rotate the LiveKit API key (already pending). Rotating Sarvam and Supabase is optional.
+
 ## In Progress
 
 - Nothing running locally. The agent runs on LiveKit Cloud; the web app on Vercel. The local dev server was stopped by Claude Code for low memory on 2026-10-23.
